@@ -1511,14 +1511,12 @@
                             </div>
                             <div className="flex gap-2 flex-shrink-0">
                               <Btn variant="secondary" size="sm" onClick={() => setPreviewDevId(null)}>Close</Btn>
-                              {!techLocked && (
-                                <Btn size="sm" onClick={() => {
-                                  setActiveDevId(pDev.id);
-                                  setDf({ ceilingHeight: pDev.ceilingHeight, mountingMethod: pDev.mountingMethod, deviceType: pDev.deviceType, notes: pDev.notes, photos: pDev.photos });
-                                  setPreviewDevId(null);
-                                  setScreen("device");
-                                }}>Edit →</Btn>
-                              )}
+                              <Btn size="sm" variant={techLocked ? "secondary" : "primary"} onClick={() => {
+                                setActiveDevId(pDev.id);
+                                setDf({ ceilingHeight: pDev.ceilingHeight, mountingMethod: pDev.mountingMethod, deviceType: pDev.deviceType, notes: pDev.notes, photos: pDev.photos });
+                                setPreviewDevId(null);
+                                setScreen("device");
+                              }}>{techLocked ? "View →" : "Edit →"}</Btn>
                             </div>
                           </div>
                         </div>
