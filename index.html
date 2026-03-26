@@ -305,11 +305,18 @@
     );
 
     // ─── FloorPdfThumb: loads thumbnail from IndexedDB for floors list ───────────
+    const _thumbCache = {};
     const FloorPdfThumb = ({ floorId, name }) => {
-      const [thumb, setThumb] = React.useState(null);
+      const [thumb, setThumb] = React.useState(_thumbCache[floorId] || null);
       React.useEffect(() => {
+        if (_thumbCache[floorId]) { setThumb(_thumbCache[floorId]); return; }
         let cancelled = false;
-        idbGetThumb(floorId).then(url => { if (!cancelled && url) setThumb(url); }).catch(() => {});
+        idbGetThumb(floorId).then(url => {
+          if (!cancelled && url) {
+            _thumbCache[floorId] = url;
+            setThumb(url);
+          }
+        }).catch(() => {});
         return () => { cancelled = true; };
       }, [floorId]);
       if (thumb) return <img src={thumb} alt={name} style={{ width: "100%", display: "block" }} />;
