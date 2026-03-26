@@ -1219,7 +1219,7 @@
                         onChange={(e) => setProject(activeId, { summary: { ...project.summary, comments: e.target.value } })} />
                     </Field>
                   </div>
-                  {project.status === "in_progress" && !techMode && (
+                  {project.status === "in_progress" && (
                     <Btn variant="success" size="lg" className="w-full mt-4" onClick={() => setConfirmReady(true)}>
                       ✓ Submit Survey
                     </Btn>
