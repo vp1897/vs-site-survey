@@ -79,6 +79,31 @@
       return ref.getDownloadURL();
     };
 
+    // IndexedDB helpers — persist PDF files locally across navigation
+    const idbOpen = () => new Promise((res, rej) => {
+      const r = indexedDB.open('vs-survey-pdfs', 1);
+      r.onupgradeneeded = e => e.target.result.createObjectStore('pdfs');
+      r.onsuccess = e => res(e.target.result);
+      r.onerror = rej;
+    });
+    const idbSavePdf = async (floorId, file) => {
+      const db = await idbOpen();
+      return new Promise((res, rej) => {
+        const tx = db.transaction('pdfs', 'readwrite');
+        tx.objectStore('pdfs').put(file, floorId);
+        tx.oncomplete = res; tx.onerror = rej;
+      });
+    };
+    const idbGetPdf = async (floorId) => {
+      const db = await idbOpen();
+      return new Promise((res, rej) => {
+        const tx = db.transaction('pdfs', 'readonly');
+        const req = tx.objectStore('pdfs').get(floorId);
+        req.onsuccess = () => res(req.result || null);
+        req.onerror = rej;
+      });
+    };
+
     const processFile = (file) => ({
       url: URL.createObjectURL(file),
       isPdf: file.type === "application/pdf",
@@ -1132,7 +1157,7 @@
                           )}
                         </div>
                         <button className="w-full text-left block"
-                          onClick={() => { setActiveFloorId(floor.id); setPdfCanvas(null); setPdfDisplayUrl(null); setLocalPdfFile(null); setPlacing(false); setPreviewDevId(null); setScreen("floor"); }}>
+                          onClick={() => { const fid = floor.id; setActiveFloorId(fid); setPdfCanvas(null); setPdfDisplayUrl(null); setLocalPdfFile(null); setPlacing(false); setPreviewDevId(null); setScreen("floor"); if (floor.floorPlan && floor.floorPlan.isPdf && !floor.floorPlan.url) { idbGetPdf(fid).then(file => { if (file) setLocalPdfFile(file); }).catch(() => {}); } }}>
                           {floor.floorPlan ? (
                             <div className="relative overflow-hidden bg-gray-50" style={{ maxHeight: 140 }}>
                               {floor.floorPlan.isDemo ? (
@@ -1282,6 +1307,7 @@
                               floorPlan: { isPdf: true, name: f.name, url: null, file: null, thumbnailUrl: null }
                             });
                             setLocalPdfFile(f);
+                            idbSavePdf(activeFloorId, f).catch(() => {});
                           } else {
                             const dataUrl = await fileToBase64(f);
                             setFloor(activeId, activeFloorId, {
@@ -1502,6 +1528,7 @@
                                         floorPlan: { isPdf: true, name: f.name, url: null, file: null, thumbnailUrl: null }
                                       });
                                       setLocalPdfFile(f);
+                                      idbSavePdf(activeFloorId, f).catch(() => {});
                                     } else {
                                       const dataUrl = await fileToBase64(f);
                                       setFloor(activeId, activeFloorId, {
