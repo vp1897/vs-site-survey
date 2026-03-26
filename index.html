@@ -322,7 +322,7 @@
 
       if (loading) return (
         <div style={{ height: 300 }} className="bg-gray-100 flex flex-col items-center justify-center gap-3">
-          <div className="w-9 h-9 border-4 border-teal-500 border-t-transparent rounded-full animate-spin" />
+          <div className="w-9 h-9 border-4 border-[#5a50d8] border-t-transparent rounded-full animate-spin" />
           <p className="text-sm text-gray-500 font-medium">Rendering PDF…</p>
           <p className="text-xs text-gray-400">This may take a few seconds</p>
         </div>
@@ -358,18 +358,18 @@
       </div>
     );
     const Input = (props) => (
-      <input {...props} className={`w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 ${props.className ?? ""}`} />
+      <input {...props} className={`w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#5a50d8] ${props.className ?? ""}`} />
     );
     const Sel = ({ children, ...props }) => (
-      <select {...props} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500">{children}</select>
+      <select {...props} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#5a50d8]">{children}</select>
     );
     const TA = (props) => (
-      <textarea {...props} rows={3} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 resize-none" />
+      <textarea {...props} rows={3} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#5a50d8] resize-none" />
     );
     const Btn = ({ children, variant = "primary", size = "md", ...props }) => {
       const sz = { sm: "px-3 py-1.5 text-xs", md: "px-4 py-2 text-sm", lg: "px-5 py-3 text-base" };
       const vr = {
-        primary:   "bg-teal-600 text-white hover:bg-teal-700",
+        primary:   "bg-[#493FD1] text-white hover:bg-[#3a31c4]",
         secondary: "bg-gray-100 text-gray-700 hover:bg-gray-200",
         danger:    "bg-red-600 text-white hover:bg-red-700",
         success:   "bg-emerald-600 text-white hover:bg-emerald-700",
@@ -452,7 +452,7 @@
 
       return (
         <div style={{ position: "relative", borderRadius: "0.75rem" }}
-          className={`select-none border-2 transition-colors ${placing ? "border-teal-500" : "border-gray-200"}`}>
+          className={`select-none border-2 transition-colors ${placing ? "border-[#5a50d8]" : "border-gray-200"}`}>
           <div style={{
               overflow: zoom > 1 ? "auto" : "hidden",
               height:   zoom > 1 ? 320 : undefined,
@@ -471,7 +471,7 @@
               {children}
               {placing && !suppressBanner && (
                 <div className="absolute inset-0 pointer-events-none flex items-end justify-center pb-4" style={{ zIndex: 20 }}>
-                  <div className="bg-teal-700 text-white text-sm px-4 py-2 rounded-full shadow-lg font-semibold">
+                  <div className="bg-[#3a31c4] text-white text-sm px-4 py-2 rounded-full shadow-lg font-semibold">
                     Tap floor plan to place device
                   </div>
                 </div>
@@ -516,7 +516,7 @@
                 transformOrigin: "center",
               }}
               className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white transition-transform ${
-                d.id === dev.id ? "scale-110 ring-2 ring-teal-400 ring-offset-2" : "hover:scale-110"
+                d.id === dev.id ? "scale-110 ring-2 ring-[#7069df] ring-offset-2" : "hover:scale-110"
               } ${d.complete ? "bg-emerald-500 border-2 border-white" : "bg-blue-600 border-2 border-white"}`}>
               {d.number}
             </button>
@@ -871,14 +871,14 @@
               {/* Tech code entry */}
               <p className="text-xs text-gray-500 font-medium mb-2">🔧 Field tech? Enter your name and project code</p>
               <input
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-[#5a50d8]"
                 placeholder="Your full name"
                 value={techNameInput}
                 onChange={(e) => setTechNameInput(e.target.value)}
               />
               <div className="flex gap-2">
                 <input
-                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono uppercase tracking-widest focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono uppercase tracking-widest focus:outline-none focus:ring-2 focus:ring-[#5a50d8]"
                   placeholder="ABC123"
                   value={techCodeInput}
                   maxLength={6}
@@ -923,7 +923,7 @@
               <div className="bg-white border-b px-4 py-4 sticky top-0 z-10">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
-                    <div className="w-6 h-6 rounded bg-teal-600 flex items-center justify-center">
+                    <div className="w-6 h-6 rounded bg-[#493FD1] flex items-center justify-center">
                       <span className="text-white text-xs font-bold">VS</span>
                     </div>
                     <h1 className="text-lg font-bold">Site Surveys</h1>
@@ -940,12 +940,12 @@
                   <div className="flex rounded-lg overflow-hidden border border-gray-200 text-xs font-medium">
                     <button
                       onClick={() => setShowMyProjects(false)}
-                      className={`px-3 py-1 transition-colors ${!showMyProjects ? "bg-teal-600 text-white" : "bg-white text-gray-500 hover:bg-gray-50"}`}>
+                      className={`px-3 py-1 transition-colors ${!showMyProjects ? "bg-[#493FD1] text-white" : "bg-white text-gray-500 hover:bg-gray-50"}`}>
                       All
                     </button>
                     <button
                       onClick={() => setShowMyProjects(true)}
-                      className={`px-3 py-1 transition-colors ${showMyProjects ? "bg-teal-600 text-white" : "bg-white text-gray-500 hover:bg-gray-50"}`}>
+                      className={`px-3 py-1 transition-colors ${showMyProjects ? "bg-[#493FD1] text-white" : "bg-white text-gray-500 hover:bg-gray-50"}`}>
                       Mine
                     </button>
                   </div>
@@ -966,7 +966,7 @@
                   return (
                     <button key={p.id}
                       onClick={() => { setTechMode(false); setActiveId(p.id); setTab("floors"); setScreen("project"); }}
-                      className="w-full bg-white rounded-xl border border-gray-200 p-4 text-left hover:border-teal-400 hover:shadow-sm transition-all">
+                      className="w-full bg-white rounded-xl border border-gray-200 p-4 text-left hover:border-[#7069df] hover:shadow-sm transition-all">
                       <div className="flex items-start justify-between gap-2 mb-1">
                         <div className="min-w-0">
                           <p className="font-semibold text-sm truncate">{p.name}</p>
@@ -986,7 +986,7 @@
                       </div>
                       {total > 0 && (
                         <div className="mt-2.5 h-1 bg-gray-100 rounded-full overflow-hidden">
-                          <div className="h-full bg-teal-500 rounded-full" style={{ width: `${(done / total) * 100}%` }} />
+                          <div className="h-full bg-[#5a50d8] rounded-full" style={{ width: `${(done / total) * 100}%` }} />
                         </div>
                       )}
                     </button>
@@ -1000,7 +1000,7 @@
           {screen === "newProject" && (
             <div className="max-w-lg mx-auto pb-8">
               <div className="bg-white border-b px-4 py-3 flex items-center gap-3 sticky top-0 z-10">
-                <button onClick={() => setScreen("list")} className="text-teal-600 text-sm font-medium">← Back</button>
+                <button onClick={() => setScreen("list")} className="text-[#493FD1] text-sm font-medium">← Back</button>
                 <h1 className="font-bold">New Project</h1>
               </div>
               <div className="p-4">
@@ -1045,7 +1045,7 @@
           {screen === "project" && project && (
             <div className="max-w-lg mx-auto" style={{ minHeight: "100vh" }}>
               <div className="bg-white border-b px-4 py-3 sticky top-0 z-10">
-                <button onClick={() => setScreen("list")} className="text-teal-600 text-sm font-medium">← Projects</button>
+                <button onClick={() => setScreen("list")} className="text-[#493FD1] text-sm font-medium">← Projects</button>
                 <div className="flex items-start justify-between gap-2 mt-0.5">
                   <div className="min-w-0">
                     <h2 className="font-bold truncate">{project.name}</h2>
@@ -1054,10 +1054,10 @@
                   <Badge status={project.status} />
                 </div>
                 <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                  <div className="inline-flex items-center gap-1.5 text-xs bg-teal-50 text-teal-700 px-2.5 py-1 rounded-full">
+                  <div className="inline-flex items-center gap-1.5 text-xs bg-[#f0effc] text-[#3a31c4] px-2.5 py-1 rounded-full">
                     <span>👤</span>
                     <span className="font-medium">{project.vsContact.name}</span>
-                    <span className="text-teal-400">· {project.vsContact.email}</span>
+                    <span className="text-[#7069df]">· {project.vsContact.email}</span>
                   </div>
                   <div className="inline-flex items-center gap-1.5 text-xs bg-gray-100 text-gray-600 px-2.5 py-1 rounded-full">
                     <span>🔧</span>
@@ -1068,7 +1068,7 @@
                         try { navigator.clipboard.writeText(getAccessCode(project)); } catch (_) {}
                         showToast("Tech code copied!");
                       }}
-                      className="text-teal-600 font-semibold hover:text-teal-700 ml-0.5">
+                      className="text-[#493FD1] font-semibold hover:text-[#3a31c4] ml-0.5">
                       Copy
                     </button>
                   </div>
@@ -1093,7 +1093,7 @@
               <div className="bg-white border-b flex sticky top-[87px] z-10">
                 {[["floors", `🏢 Floors (${project.floors.length})`], ["summary", "📋 Summary"]].map(([key, lbl]) => (
                   <button key={key} onClick={() => setTab(key)}
-                    className={`flex-1 py-2.5 text-xs font-semibold border-b-2 transition-colors ${tab === key ? "border-teal-600 text-teal-700" : "border-transparent text-gray-500 hover:text-gray-700"}`}>
+                    className={`flex-1 py-2.5 text-xs font-semibold border-b-2 transition-colors ${tab === key ? "border-[#493FD1] text-[#3a31c4]" : "border-transparent text-gray-500 hover:text-gray-700"}`}>
                     {lbl}
                   </button>
                 ))}
@@ -1111,7 +1111,7 @@
                           <span className="text-base">🏢</span>
                           {editingFloorId === floor.id ? (
                             <input autoFocus
-                              className="flex-1 border border-teal-400 rounded px-2 py-1 text-sm focus:outline-none"
+                              className="flex-1 border border-[#7069df] rounded px-2 py-1 text-sm focus:outline-none"
                               value={editFloorName}
                               onChange={(e) => setEditFloorName(e.target.value)}
                               onBlur={() => {
@@ -1121,7 +1121,7 @@
                               onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); }}
                             />
                           ) : (
-                            <button className="flex-1 text-left text-sm font-semibold text-gray-800 hover:text-teal-700"
+                            <button className="flex-1 text-left text-sm font-semibold text-gray-800 hover:text-[#3a31c4]"
                               onDoubleClick={() => { setEditingFloorId(floor.id); setEditFloorName(floor.name); }}>
                               {floor.name}
                             </button>
@@ -1153,7 +1153,7 @@
                               )}
                             </div>
                           ) : (
-                            <div className="bg-gray-50 flex flex-col items-center justify-center gap-1 py-7 text-gray-400 hover:bg-teal-50 hover:text-teal-600 transition-colors">
+                            <div className="bg-gray-50 flex flex-col items-center justify-center gap-1 py-7 text-gray-400 hover:bg-[#f0effc] hover:text-[#493FD1] transition-colors">
                               <span className="text-2xl">🗺️</span>
                               <span className="text-xs font-medium">Open to upload floor plan</span>
                             </div>
@@ -1165,7 +1165,7 @@
                   {!techMode && (
                     <>
                       <button onClick={addFloor}
-                        className="w-full border-2 border-dashed border-gray-300 rounded-xl py-4 text-sm text-gray-500 hover:border-teal-400 hover:text-teal-600 transition-colors font-medium">
+                        className="w-full border-2 border-dashed border-gray-300 rounded-xl py-4 text-sm text-gray-500 hover:border-[#7069df] hover:text-[#493FD1] transition-colors font-medium">
                         + Add Floor
                       </button>
                       <p className="text-xs text-gray-400 text-center">Double-tap a floor name to rename it</p>
@@ -1182,9 +1182,9 @@
                     <p className="text-xs text-gray-400 mb-3">Auto-calculated across all floors</p>
                     <div className="grid grid-cols-4 gap-2">
                       {Object.entries(kitCounts(project)).map(([type, count]) => (
-                        <div key={type} className={`text-center rounded-xl p-3 border ${count > 0 ? "bg-teal-50 border-teal-200" : "bg-gray-50 border-gray-100"}`}>
-                          <div className={`text-2xl font-bold ${count > 0 ? "text-teal-700" : "text-gray-400"}`}>{count}</div>
-                          <div className={`text-xs font-semibold ${count > 0 ? "text-teal-600" : "text-gray-400"}`}>{type}</div>
+                        <div key={type} className={`text-center rounded-xl p-3 border ${count > 0 ? "bg-[#f0effc] border-[#c4c0f4]" : "bg-gray-50 border-gray-100"}`}>
+                          <div className={`text-2xl font-bold ${count > 0 ? "text-[#3a31c4]" : "text-gray-400"}`}>{count}</div>
+                          <div className={`text-xs font-semibold ${count > 0 ? "text-[#493FD1]" : "text-gray-400"}`}>{type}</div>
                         </div>
                       ))}
                     </div>
@@ -1242,7 +1242,7 @@
           {screen === "floor" && project && activeFloor && (
             <div className="max-w-lg mx-auto" style={{ minHeight: "100vh" }}>
               <div className="bg-white border-b px-4 py-3 sticky top-0 z-10">
-                <button onClick={() => { setPlacing(false); setPreviewDevId(null); setEditMapMode(false); setDraggingDevId(null); setScreen("project"); setTab("floors"); }} className="text-teal-600 text-sm font-medium">
+                <button onClick={() => { setPlacing(false); setPreviewDevId(null); setEditMapMode(false); setDraggingDevId(null); setScreen("project"); setTab("floors"); }} className="text-[#493FD1] text-sm font-medium">
                   ← {project.name}
                 </button>
                 <div className="flex items-center justify-between mt-0.5">
@@ -1262,12 +1262,12 @@
 
               <div className="p-4">
                 {!activeFloor.floorPlan && !techMode && (
-                  <label className="block w-full border-2 border-dashed border-gray-300 rounded-xl p-8 text-center cursor-pointer hover:border-teal-400 transition-colors mb-4">
+                  <label className="block w-full border-2 border-dashed border-gray-300 rounded-xl p-8 text-center cursor-pointer hover:border-[#7069df] transition-colors mb-4">
                     <div className="text-gray-400">
                       <div className="text-5xl mb-2">🗺️</div>
                       <p className="text-sm font-medium">Upload floor plan for {activeFloor.name}</p>
                       <p className="text-xs mt-1">JPG, PNG, or PDF markup</p>
-                      <p className="text-xs mt-1 text-teal-600 font-medium">PDF markups support auto device detection ✨</p>
+                      <p className="text-xs mt-1 text-[#493FD1] font-medium">PDF markups support auto device detection ✨</p>
                     </div>
                     <input type="file" accept="image/*,application/pdf" className="hidden"
                       onChange={async (e) => {
@@ -1309,7 +1309,7 @@
                     {activeFloor.devices.length > 0 && (
                       <div className="flex items-center gap-2 mb-3">
                         <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-                          <div className="h-full bg-teal-500 rounded-full"
+                          <div className="h-full bg-[#5a50d8] rounded-full"
                             style={{ width: `${(activeFloor.devices.filter((d) => d.complete).length / activeFloor.devices.length) * 100}%` }} />
                         </div>
                         <span className="text-xs font-medium text-gray-600">
@@ -1377,7 +1377,7 @@
                                 ${editMapMode
                                   ? `border-yellow-300 ring-1 ring-yellow-400 ${isDragging ? "scale-110 cursor-grabbing" : "cursor-grab"}`
                                   : previewDevId === dev.id
-                                    ? "border-teal-300 scale-110 ring-2 ring-teal-400 ring-offset-1"
+                                    ? "border-[#a9a4ef] scale-110 ring-2 ring-[#7069df] ring-offset-1"
                                     : "border-white hover:scale-110"}
                                 ${dev.complete ? "bg-emerald-500" : "bg-blue-600"}`}>
                               {dev.number}
@@ -1419,7 +1419,7 @@
                           <div className="grid grid-cols-2 gap-3">
                             {DEVICE_TYPES.map((t) => (
                               <button key={t} onClick={() => confirmQuickPlace(t)}
-                                className="py-3 rounded-xl border-2 border-gray-200 text-sm font-semibold text-gray-700 hover:border-teal-500 hover:bg-teal-50 hover:text-teal-700 transition-colors">
+                                className="py-3 rounded-xl border-2 border-gray-200 text-sm font-semibold text-gray-700 hover:border-[#5a50d8] hover:bg-[#f0effc] hover:text-[#3a31c4] transition-colors">
                                 {t}
                               </button>
                             ))}
@@ -1436,7 +1436,7 @@
                       const pDev = activeFloor.devices.find((d) => d.id === previewDevId);
                       if (!pDev) return null;
                       return (
-                        <div className="mt-3 rounded-xl overflow-hidden border-2 border-teal-300 shadow-lg">
+                        <div className="mt-3 rounded-xl overflow-hidden border-2 border-[#a9a4ef] shadow-lg">
                           <ZoomedPreview
                             floorPlan={activeFloor.floorPlan}
                             dev={pDev}
@@ -1570,7 +1570,7 @@
                                 setActiveDevId(dev.id);
                                 setDf({ ceilingHeight: dev.ceilingHeight, mountingMethod: dev.mountingMethod, deviceType: dev.deviceType, notes: dev.notes, photos: dev.photos });
                                 setScreen("device");
-                              }} className="text-teal-600 text-xs font-medium px-2.5 py-1.5 rounded-lg hover:bg-teal-50">Edit</button>
+                              }} className="text-[#493FD1] text-xs font-medium px-2.5 py-1.5 rounded-lg hover:bg-[#f0effc]">Edit</button>
                             )}
                             {!techMode && (
                               <button onClick={() => deleteDevice(dev.id)} className="text-red-500 text-xs font-medium px-2.5 py-1.5 rounded-lg hover:bg-red-50">✕</button>
@@ -1590,7 +1590,7 @@
           {screen === "device" && project && activeFloor && activeDev && (
             <div className="max-w-lg mx-auto pb-8">
               <div className="bg-white border-b px-4 py-3 flex items-center justify-between sticky top-0 z-10">
-                <button onClick={() => setScreen("floor")} className="text-teal-600 text-sm font-medium">← {activeFloor.name}</button>
+                <button onClick={() => setScreen("floor")} className="text-[#493FD1] text-sm font-medium">← {activeFloor.name}</button>
                 <h2 className="font-bold">Device #{activeDev.number}{activeDev.deviceType && ` · ${activeDev.deviceType}`}</h2>
                 <div className="w-16" />
               </div>
@@ -1642,7 +1642,7 @@
                       </div>
                     ))}
                     {!techLocked && (
-                      <label className="w-20 h-20 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-teal-400 text-gray-400 flex-shrink-0">
+                      <label className="w-20 h-20 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-[#7069df] text-gray-400 flex-shrink-0">
                         <span className="text-2xl leading-none">+</span>
                         <span className="text-xs mt-0.5">Photo</span>
                         <input type="file" accept="image/*" capture="environment" className="hidden" multiple
@@ -1696,7 +1696,7 @@
                 {scanTotal > 0 && (
                   <>
                     {scanHasGW ? (
-                      <div className="mb-4 bg-teal-50 border border-teal-200 rounded-xl p-3 text-xs text-teal-700 flex items-start gap-2">
+                      <div className="mb-4 bg-[#f0effc] border border-[#c4c0f4] rounded-xl p-3 text-xs text-[#3a31c4] flex items-start gap-2">
                         <span className="text-base mt-0.5">✓</span>
                         <span>Gateway detected — area sensors set to <strong>L410</strong></span>
                       </div>
@@ -1709,7 +1709,7 @@
                               onClick={() => setScanModal({ ...scanModal, sensorType: type })}
                               className={`flex-1 py-2 text-sm font-bold rounded-xl border-2 transition-colors ${
                                 scanModal.sensorType === type
-                                  ? "border-teal-600 bg-teal-600 text-white"
+                                  ? "border-[#493FD1] bg-[#493FD1] text-white"
                                   : "border-gray-300 text-gray-600 hover:border-gray-400"
                               }`}>
                               {type}
@@ -1740,9 +1740,9 @@
                 <div className="text-3xl mb-3 text-center">📤</div>
                 <h3 className="text-lg font-bold text-center mb-2">Submit Survey?</h3>
                 <p className="text-sm text-gray-600 text-center mb-1">This will send your survey data and notify:</p>
-                <div className="bg-teal-50 border border-teal-200 rounded-xl p-3 mb-5 text-center">
-                  <p className="font-semibold text-teal-800 text-sm">{project.vsContact.name}</p>
-                  <p className="text-xs text-teal-600">{project.vsContact.email}</p>
+                <div className="bg-[#f0effc] border border-[#c4c0f4] rounded-xl p-3 mb-5 text-center">
+                  <p className="font-semibold text-[#2e2599] text-sm">{project.vsContact.name}</p>
+                  <p className="text-xs text-[#493FD1]">{project.vsContact.email}</p>
                 </div>
                 <div className="flex gap-2">
                   <Btn variant="secondary" className="flex-1" onClick={() => setConfirmReady(false)}>Not yet</Btn>
