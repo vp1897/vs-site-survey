@@ -27,6 +27,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
 </head>
 <body class="bg-gray-50">
   <div id="root"></div>
@@ -51,8 +52,9 @@
     const N8N_WEBHOOK_URL = "REPLACE_WITH_YOUR_N8N_WEBHOOK_URL";
 
     firebase.initializeApp(FIREBASE_CONFIG);
-    const db   = firebase.firestore();
-    const auth = firebase.auth();
+    const db      = firebase.firestore();
+    const auth    = firebase.auth();
+    const storage = firebase.storage();
   </script>
 
   <script type="text/babel">
@@ -66,6 +68,16 @@
       reader.onload = (e) => resolve(e.target.result);
       reader.readAsDataURL(file);
     });
+
+    // Upload a floor plan file to Firebase Storage and return its public download URL.
+    // PDFs are stored as-is so any device can fetch and render them via PDF.js.
+    // Images are converted to base64 (stored in Firestore directly — no Storage needed).
+    const uploadFloorPlanToStorage = async (file, projectId, floorId) => {
+      const path = `floorPlans/${projectId}/${floorId}/${Date.now()}_${file.name}`;
+      const ref  = storage.ref(path);
+      await ref.put(file);
+      return ref.getDownloadURL();
+    };
 
     const processFile = (file) => ({
       url: URL.createObjectURL(file),
@@ -420,7 +432,7 @@
     };
 
     // ─── FloorPlanCanvas ───────────────────────────────────────────────────────────
-    const FloorPlanCanvas = ({ floorPlan, placing, suppressBanner, onClickOverlay, onPdfRendered, onPdfDisplayUrl, containerRef: extRef, children }) => {
+    const FloorPlanCanvas = ({ floorPlan, pdfFile, placing, suppressBanner, onClickOverlay, onPdfRendered, onPdfDisplayUrl, containerRef: extRef, children }) => {
       const innerRef = useRef(null);
       const [zoom, setZoom] = useState(1);
 
@@ -452,7 +464,7 @@
               {floorPlan?.isDemo ? (
                 <DemoFloorPlanSVG />
               ) : floorPlan?.isPdf ? (
-                <PdfCanvas url={floorPlan.url} file={floorPlan.file} onRendered={onPdfRendered} onDisplayUrl={onPdfDisplayUrl} />
+                <PdfCanvas url={floorPlan.url} file={pdfFile || floorPlan.file} onRendered={onPdfRendered} onDisplayUrl={onPdfDisplayUrl} />
               ) : floorPlan?.url ? (
                 <img src={floorPlan.url} alt="floor plan" style={{ width: "100%", display: "block" }} draggable={false} />
               ) : null}
@@ -543,6 +555,7 @@
       const [quickPlacePos, setQuickPlacePos]   = useState(null);
       const [currentUser, setCurrentUser]       = useState(null);
       const [authReady, setAuthReady]           = useState(false);
+      const [showMyProjects, setShowMyProjects] = useState(false);
       const [showTechEntry, setShowTechEntry]   = useState(false);
       const [techCodeInput, setTechCodeInput]   = useState("");
       const [techMode, setTechMode]             = useState(false);
@@ -596,10 +609,10 @@
         setScreen("list");
       };
 
-      // PMs only see their own projects; filter by signed-in email
-      const visibleProjects = currentUser
+      // Show all projects by default; "My Projects" toggle filters to signed-in PM's own
+      const visibleProjects = (showMyProjects && currentUser)
         ? projects.filter((p) => p.vsContact?.email === currentUser.email)
-        : projects; // tech mode (no sign-in) — access via project code only
+        : projects;
 
       const showToast = (msg, type = "success") => {
         setToast({ msg, type });
@@ -897,21 +910,35 @@
           {/* ══════════════ PROJECT LIST ══════════════ */}
           {screen === "list" && (
             <div className="max-w-lg mx-auto pb-8">
-              <div className="bg-white border-b px-4 py-4 sticky top-0 z-10 flex items-center justify-between">
-                <div>
+              <div className="bg-white border-b px-4 py-4 sticky top-0 z-10">
+                <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
                     <div className="w-6 h-6 rounded bg-teal-600 flex items-center justify-center">
                       <span className="text-white text-xs font-bold">VS</span>
                     </div>
                     <h1 className="text-lg font-bold">Site Surveys</h1>
                   </div>
-                  <p className="text-xs text-gray-500 ml-8">
+                  <div className="flex items-center gap-2">
+                    <Btn onClick={() => setScreen("newProject")}>+ New Project</Btn>
+                    <button onClick={signOut} className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1 rounded transition-colors" title="Sign out">↩</button>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-gray-500">
                     {currentUser?.displayName ?? currentUser?.email} · {visibleProjects.length} project{visibleProjects.length !== 1 && "s"}
                   </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Btn onClick={() => setScreen("newProject")}>+ New Project</Btn>
-                  <button onClick={signOut} className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1 rounded transition-colors" title="Sign out">↩</button>
+                  <div className="flex rounded-lg overflow-hidden border border-gray-200 text-xs font-medium">
+                    <button
+                      onClick={() => setShowMyProjects(false)}
+                      className={`px-3 py-1 transition-colors ${!showMyProjects ? "bg-teal-600 text-white" : "bg-white text-gray-500 hover:bg-gray-50"}`}>
+                      All
+                    </button>
+                    <button
+                      onClick={() => setShowMyProjects(true)}
+                      className={`px-3 py-1 transition-colors ${showMyProjects ? "bg-teal-600 text-white" : "bg-white text-gray-500 hover:bg-gray-50"}`}>
+                      Mine
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -1095,7 +1122,7 @@
                           )}
                         </div>
                         <button className="w-full text-left block"
-                          onClick={() => { setActiveFloorId(floor.id); setPdfCanvas(null); setPdfDisplayUrl(null); setPlacing(false); setPreviewDevId(null); setScreen("floor"); }}>
+                          onClick={() => { setActiveFloorId(floor.id); setPdfCanvas(null); setPdfDisplayUrl(null); setLocalPdfFile(null); setPlacing(false); setPreviewDevId(null); setScreen("floor"); }}>
                           {floor.floorPlan ? (
                             <div className="relative overflow-hidden bg-gray-50" style={{ maxHeight: 140 }}>
                               {floor.floorPlan.isDemo ? (
@@ -1236,17 +1263,25 @@
                       onChange={async (e) => {
                         const f = e.target.files?.[0];
                         if (!f) return;
-                        setPdfCanvas(null);
-                        if (f.type === 'application/pdf') {
-                          setFloor(activeId, activeFloorId, {
-                            floorPlan: { isPdf: true, name: f.name, url: null, file: null, thumbnailUrl: null }
-                          });
-                          setLocalPdfFile(f);
-                        } else {
-                          const dataUrl = await fileToBase64(f);
-                          setFloor(activeId, activeFloorId, {
-                            floorPlan: { isPdf: false, name: f.name, url: dataUrl, file: null }
-                          });
+                        setPdfCanvas(null); setLocalPdfFile(null);
+                        showToast("Uploading floor plan…", "info");
+                        try {
+                          if (f.type === 'application/pdf') {
+                            // Upload PDF to Firebase Storage so all devices can fetch it
+                            const url = await uploadFloorPlanToStorage(f, activeId, activeFloorId);
+                            setFloor(activeId, activeFloorId, {
+                              floorPlan: { isPdf: true, name: f.name, url, file: null, thumbnailUrl: null }
+                            });
+                            setLocalPdfFile(f); // keep local ref for immediate rendering this session
+                          } else {
+                            const dataUrl = await fileToBase64(f);
+                            setFloor(activeId, activeFloorId, {
+                              floorPlan: { isPdf: false, name: f.name, url: dataUrl, file: null }
+                            });
+                          }
+                          showToast("Floor plan uploaded ✓");
+                        } catch (err) {
+                          showToast("Upload failed — try again", "error");
                         }
                       }} />
                   </label>
@@ -1268,6 +1303,7 @@
 
                     <FloorPlanCanvas
                       floorPlan={activeFloor.floorPlan}
+                      pdfFile={localPdfFile}
                       placing={placing || editMapMode}
                       suppressBanner={editMapMode}
                       onClickOverlay={editMapMode ? quickPlaceDevice : placeDevice}
@@ -1448,17 +1484,24 @@
                                 onChange={async (e) => {
                                   const f = e.target.files?.[0];
                                   if (!f) return;
-                                  setPdfCanvas(null);
-                                  if (f.type === 'application/pdf') {
-                                    setFloor(activeId, activeFloorId, {
-                                      floorPlan: { isPdf: true, name: f.name, url: null, file: null, thumbnailUrl: null }
-                                    });
-                                    setLocalPdfFile(f);
-                                  } else {
-                                    const dataUrl = await fileToBase64(f);
-                                    setFloor(activeId, activeFloorId, {
-                                      floorPlan: { isPdf: false, name: f.name, url: dataUrl, file: null }
-                                    });
+                                  setPdfCanvas(null); setLocalPdfFile(null);
+                                  showToast("Uploading floor plan…", "info");
+                                  try {
+                                    if (f.type === 'application/pdf') {
+                                      const url = await uploadFloorPlanToStorage(f, activeId, activeFloorId);
+                                      setFloor(activeId, activeFloorId, {
+                                        floorPlan: { isPdf: true, name: f.name, url, file: null, thumbnailUrl: null }
+                                      });
+                                      setLocalPdfFile(f);
+                                    } else {
+                                      const dataUrl = await fileToBase64(f);
+                                      setFloor(activeId, activeFloorId, {
+                                        floorPlan: { isPdf: false, name: f.name, url: dataUrl, file: null }
+                                      });
+                                    }
+                                    showToast("Floor plan updated ✓");
+                                  } catch (err) {
+                                    showToast("Upload failed — try again", "error");
                                   }
                                 }} />
                             </label>
