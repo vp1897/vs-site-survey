@@ -103,6 +103,23 @@
         req.onerror = rej;
       });
     };
+    const idbSaveThumb = async (floorId, dataUrl) => {
+      const db = await idbOpen();
+      return new Promise((res, rej) => {
+        const tx = db.transaction('pdfs', 'readwrite');
+        tx.objectStore('pdfs').put(dataUrl, floorId + '_thumb');
+        tx.oncomplete = res; tx.onerror = rej;
+      });
+    };
+    const idbGetThumb = async (floorId) => {
+      const db = await idbOpen();
+      return new Promise((res, rej) => {
+        const tx = db.transaction('pdfs', 'readonly');
+        const req = tx.objectStore('pdfs').get(floorId + '_thumb');
+        req.onsuccess = () => res(req.result || null);
+        req.onerror = rej;
+      });
+    };
 
     const processFile = (file) => ({
       url: URL.createObjectURL(file),
@@ -286,6 +303,22 @@
         <text x="755" y="490" fontFamily="sans-serif" fontSize="11" fill="#888">N ↑</text>
       </svg>
     );
+
+    // ─── FloorPdfThumb: loads thumbnail from IndexedDB for floors list ───────────
+    const FloorPdfThumb = ({ floorId, name }) => {
+      const [thumb, setThumb] = React.useState(null);
+      React.useEffect(() => {
+        let cancelled = false;
+        idbGetThumb(floorId).then(url => { if (!cancelled && url) setThumb(url); }).catch(() => {});
+        return () => { cancelled = true; };
+      }, [floorId]);
+      if (thumb) return <img src={thumb} alt={name} style={{ width: "100%", display: "block" }} />;
+      return (
+        <div className="bg-gray-100 flex items-center justify-center" style={{ height: 120 }}>
+          <span className="text-gray-500 text-sm">📄 {name ?? "PDF Floor Plan"}</span>
+        </div>
+      );
+    };
 
     // ─── PdfCanvas: renders a PDF page to <canvas>, then displays it as <img> ─────
     const PdfCanvas = ({ url, file, onRendered, onDisplayUrl }) => {
@@ -1164,13 +1197,7 @@
                               {floor.floorPlan.isDemo ? (
                                 <div style={{ pointerEvents: "none" }}><DemoFloorPlanSVG /></div>
                               ) : floor.floorPlan.isPdf ? (
-                                floor.floorPlan.thumbnailUrl ? (
-                                  <img src={floor.floorPlan.thumbnailUrl} alt={floor.name} style={{ width: "100%", display: "block" }} />
-                                ) : (
-                                  <div className="bg-gray-100 flex items-center justify-center" style={{ height: 120 }}>
-                                    <span className="text-gray-500 text-sm">📄 {floor.floorPlan.name ?? "PDF Floor Plan"}</span>
-                                  </div>
-                                )
+                                <FloorPdfThumb floorId={floor.id} name={floor.floorPlan.name} />
                               ) : (
                                 <img src={floor.floorPlan.url} alt={floor.name} style={{ width: "100%", display: "block" }} />
                               )}
@@ -1346,9 +1373,7 @@
                       onPdfRendered={(canvas) => setPdfCanvas(canvas)}
                       onPdfDisplayUrl={(url) => {
                         setPdfDisplayUrl(url);
-                        if (activeFloor?.floorPlan && !activeFloor.floorPlan.thumbnailUrl) {
-                          setFloor(activeId, activeFloorId, { floorPlan: { ...activeFloor.floorPlan, thumbnailUrl: url } });
-                        }
+                        idbSaveThumb(activeFloorId, url).catch(() => {});
                       }}
                       containerRef={fpContainerRef}
                     >
