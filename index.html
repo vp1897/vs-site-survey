@@ -6,11 +6,11 @@
   <title>VergeSense Site Survey</title>
 
   <!-- PWA Meta Tags -->
-  <meta name="theme-color" content="#0d9488" />
+  <meta name="theme-color" content="#493FD1" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="VS Survey" />
-  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%230d9488'/><text y='.9em' font-size='70' x='15'>📋</text></svg>" />
+  <meta name="apple-mobile-web-app-title" content="VS Site Surveys" />
+  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23493FD1'/><text y='.9em' font-size='70' x='15'>📋</text></svg>" />
   <meta name="description" content="VergeSense Site Survey Tool - Onsite device mapping and survey collection" />
 
   <!-- Tailwind CSS -->
@@ -1278,11 +1278,18 @@
                         try {
                           if (f.type === 'application/pdf') {
                             // Upload PDF to Firebase Storage so all devices can fetch it
-                            const url = await uploadFloorPlanToStorage(f, activeId, activeFloorId);
-                            setFloor(activeId, activeFloorId, {
-                              floorPlan: { isPdf: true, name: f.name, url, file: null, thumbnailUrl: null }
-                            });
-                            setLocalPdfFile(f); // keep local ref for immediate rendering this session
+                            try {
+                              const url = await uploadFloorPlanToStorage(f, activeId, activeFloorId);
+                              setFloor(activeId, activeFloorId, {
+                                floorPlan: { isPdf: true, name: f.name, url, file: null, thumbnailUrl: null }
+                              });
+                            } catch (storageErr) {
+                              // Storage not yet enabled — display locally on this device only
+                              setFloor(activeId, activeFloorId, {
+                                floorPlan: { isPdf: true, name: f.name, url: null, file: null, thumbnailUrl: null }
+                              });
+                            }
+                            setLocalPdfFile(f);
                           } else {
                             const dataUrl = await fileToBase64(f);
                             setFloor(activeId, activeFloorId, {
@@ -1498,10 +1505,17 @@
                                   showToast("Uploading floor plan…", "info");
                                   try {
                                     if (f.type === 'application/pdf') {
-                                      const url = await uploadFloorPlanToStorage(f, activeId, activeFloorId);
-                                      setFloor(activeId, activeFloorId, {
-                                        floorPlan: { isPdf: true, name: f.name, url, file: null, thumbnailUrl: null }
-                                      });
+                                      try {
+                                        const url = await uploadFloorPlanToStorage(f, activeId, activeFloorId);
+                                        setFloor(activeId, activeFloorId, {
+                                          floorPlan: { isPdf: true, name: f.name, url, file: null, thumbnailUrl: null }
+                                        });
+                                      } catch (storageErr) {
+                                        // Storage not yet enabled — display locally on this device only
+                                        setFloor(activeId, activeFloorId, {
+                                          floorPlan: { isPdf: true, name: f.name, url: null, file: null, thumbnailUrl: null }
+                                        });
+                                      }
                                       setLocalPdfFile(f);
                                     } else {
                                       const dataUrl = await fileToBase64(f);
