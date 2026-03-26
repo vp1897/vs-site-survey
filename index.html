@@ -1,0 +1,1635 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>VergeSense Site Survey</title>
+
+  <!-- PWA Meta Tags -->
+  <meta name="theme-color" content="#0d9488" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="VS Survey" />
+  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%230d9488'/><text y='.9em' font-size='70' x='15'>📋</text></svg>" />
+  <meta name="description" content="VergeSense Site Survey Tool - Onsite device mapping and survey collection" />
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- React 18 -->
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+
+  <!-- Babel standalone for in-browser JSX transpilation -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+
+  <!-- Firebase v9 compat -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+</head>
+<body class="bg-gray-50">
+  <div id="root"></div>
+
+  <!-- Firebase config — REPLACE with your project values -->
+  <script>
+    // Get your Firebase config from:
+    // 1. Firebase Console (https://console.firebase.google.com)
+    // 2. Select your project
+    // 3. Project Settings (gear icon) → General tab → Your apps section
+    const FIREBASE_CONFIG = {
+      apiKey:            "AIzaSyC07qgOeFvavF9vZIbG9v-GwgMovjFZTMU",
+      authDomain:        "vergesense-site-survey.firebaseapp.com",
+      projectId:         "vergesense-site-survey",
+      storageBucket:     "vergesense-site-survey.firebasestorage.app",
+      messagingSenderId: "961293834728",
+      appId:             "1:961293834728:web:ee41e99216d83c8441ac5d"
+    };
+
+    // n8n webhook — Replace with your workflow URL
+    // Get this from your n8n instance's webhook trigger settings
+    const N8N_WEBHOOK_URL = "REPLACE_WITH_YOUR_N8N_WEBHOOK_URL";
+
+    firebase.initializeApp(FIREBASE_CONFIG);
+    const db = firebase.firestore();
+  </script>
+
+  <script type="text/babel">
+    const { useState, useRef, useEffect, useCallback } = React;
+
+    // ─── utils ─────────────────────────────────────────────────────────────────────
+    const uid = () => Math.random().toString(36).slice(2, 9);
+
+    const fileToBase64 = (file) => new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target.result);
+      reader.readAsDataURL(file);
+    });
+
+    const processFile = (file) => ({
+      url: URL.createObjectURL(file),
+      isPdf: file.type === "application/pdf",
+      name: file.name,
+      file,
+    });
+
+    const MOUNTING = ["T1", "T2", "T3", "T4"];
+    const DEVICE_TYPES = ["L410", "E106", "EN1", "GW"];
+    const VS_CONTACTS = [
+      { name: "Victoria Philbin", email: "victoria@vergesense.com" },
+      { name: "Other (enter below)", email: "" },
+    ];
+
+    // ─── PDF.js loader (singleton promise) ────────────────────────────────────────
+    let _pdfJsPromise = null;
+    const loadPdfJs = () => {
+      if (_pdfJsPromise) return _pdfJsPromise;
+      _pdfJsPromise = new Promise((resolve, reject) => {
+        if (window.pdfjsLib) { resolve(window.pdfjsLib); return; }
+        const s = document.createElement("script");
+        s.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+        s.onload = () => {
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc = "";
+          resolve(window.pdfjsLib);
+        };
+        s.onerror = () => { _pdfJsPromise = null; reject(new Error("Could not load PDF.js")); };
+        document.head.appendChild(s);
+      });
+      return _pdfJsPromise;
+    };
+
+    // ─── Device detection from canvas pixel data ───────────────────────────────────
+    const detectDevicesOnCanvas = (canvas) => {
+      const ctx = canvas.getContext("2d");
+      const w = canvas.width;
+      const h = canvas.height;
+      const data = ctx.getImageData(0, 0, w, h).data;
+      const maxY = Math.floor(h * 0.82);
+      const gs   = Math.max(10, Math.floor(w / 140));
+
+      const isGW  = (r,g,b) =>
+        r>=78&&r<=115&&g>=102&&g<=135&&b>=96&&b<=136 &&
+        (Math.max(r,g,b)-Math.min(r,g,b)) < 48;
+      const isEN1 = (r,g,b) =>
+        r>=200&&r<=248&&g>=90&&g<=140&&b>=86&&b<=132 && (r-b)>80;
+      const isWifiIcon = (r,g,b) => r < 100 && g < 50 && b > 220;
+      const isSensor = (r,g,b) => {
+        if (isWifiIcon(r,g,b)) return false;
+        const mx = Math.max(r,g,b), mn = Math.min(r,g,b);
+        return mx > 85 && mx < 252 && (mx - mn) > 45 && !isGW(r,g,b) && !isEN1(r,g,b);
+      };
+
+      const minX = Math.floor(w * 0.035);
+      const maxX = Math.floor(w * 0.965);
+      const minY = Math.floor(h * 0.030);
+
+      const cells = {};
+      for (let y = minY; y < maxY; y += 2) {
+        for (let x = minX; x < maxX; x += 2) {
+          const i = (y * w + x) * 4;
+          const r=data[i], g=data[i+1], b=data[i+2], a=data[i+3];
+          if (a < 180) continue;
+          if (r > 230 && g > 230 && b > 230) continue;
+
+          let type = null;
+          if (isGW(r,g,b))      type = "GW";
+          else if (isEN1(r,g,b)) type = "EN1";
+          else if (isSensor(r,g,b)) type = "SENSOR";
+          if (!type) continue;
+
+          const cx = Math.floor(x / gs);
+          const cy = Math.floor(y / gs);
+          const key = `${type}:${cx},${cy}`;
+          cells[key] = (cells[key] || 0) + 1;
+        }
+      }
+
+      const MIN_COUNT = { GW: 5, EN1: 10, SENSOR: 30 };
+
+      const hits = [];
+      for (const [key, count] of Object.entries(cells)) {
+        const colon = key.indexOf(":");
+        const type  = key.slice(0, colon);
+        if (count < MIN_COUNT[type]) continue;
+        const [cx, cy] = key.slice(colon + 1).split(",").map(Number);
+        hits.push({ type, x: ((cx+0.5)*gs/w)*100, y: ((cy+0.5)*gs/h)*100, count });
+      }
+
+      const MERGE_R = { GW: 2.0, EN1: 1.5, SENSOR: 2.5 };
+
+      hits.sort((a, b) => b.count - a.count);
+      const merged = [];
+      const used   = new Set();
+      for (let i = 0; i < hits.length; i++) {
+        if (used.has(i)) continue;
+        const a = hits[i];
+        const mr = MERGE_R[a.type];
+        let sx = a.x, sy = a.y, n = 1;
+        for (let j = i + 1; j < hits.length; j++) {
+          if (used.has(j)) continue;
+          const b = hits[j];
+          if (b.type === a.type && Math.abs(b.x-a.x) < mr && Math.abs(b.y-a.y) < mr) {
+            sx += b.x; sy += b.y; n++;
+            used.add(j);
+          }
+        }
+        used.add(i);
+        merged.push({ type: a.type, x: sx / n, y: sy / n });
+      }
+
+      const en1Hits = merged.filter(d => d.type === "EN1");
+      const EN1_EXCLUSION_R = 1.5;
+      const filtered = merged.filter(d => {
+        if (d.type !== "SENSOR") return true;
+        return !en1Hits.some(e =>
+          Math.abs(d.x - e.x) < EN1_EXCLUSION_R && Math.abs(d.y - e.y) < EN1_EXCLUSION_R
+        );
+      });
+
+      return filtered;
+    };
+
+    // ─── Demo floor plan as inline SVG ─────────
+    const DemoFloorPlanSVG = () => (
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" width="100%" style={{ display: "block" }}>
+        <rect width="800" height="500" fill="#f5f5f2" />
+        <rect x="15" y="15" width="770" height="470" fill="none" stroke="#555" strokeWidth="5" />
+        <line x1="215" y1="15"  x2="215" y2="325" stroke="#555" strokeWidth="3" />
+        <line x1="585" y1="15"  x2="585" y2="325" stroke="#555" strokeWidth="3" />
+        <line x1="15"  y1="175" x2="215" y2="175" stroke="#555" strokeWidth="3" />
+        <line x1="15"  y1="325" x2="785" y2="325" stroke="#555" strokeWidth="3" />
+        <line x1="215" y1="325" x2="215" y2="485" stroke="#555" strokeWidth="3" />
+        <line x1="365" y1="325" x2="365" y2="485" stroke="#555" strokeWidth="3" />
+        <line x1="515" y1="325" x2="515" y2="485" stroke="#555" strokeWidth="3" />
+        <line x1="665" y1="325" x2="665" y2="485" stroke="#555" strokeWidth="3" />
+        <rect x="16"  y="16"  width="198" height="158" fill="#dbeafe" opacity=".5" />
+        <rect x="16"  y="175" width="198" height="149" fill="#dbeafe" opacity=".5" />
+        <rect x="216" y="16"  width="368" height="308" fill="#fef9c3" opacity=".45" />
+        <rect x="586" y="16"  width="198" height="158" fill="#fce7f3" opacity=".45" />
+        <rect x="586" y="175" width="198" height="149" fill="#dcfce7" opacity=".45" />
+        <rect x="16"  y="326" width="198" height="158" fill="#ede9fe" opacity=".45" />
+        <rect x="216" y="326" width="148" height="158" fill="#ede9fe" opacity=".45" />
+        <rect x="366" y="326" width="148" height="158" fill="#ede9fe" opacity=".45" />
+        <rect x="516" y="326" width="148" height="158" fill="#ede9fe" opacity=".45" />
+        <rect x="666" y="326" width="118" height="158" fill="#ede9fe" opacity=".45" />
+        <text x="115" y="92"  textAnchor="middle" fontFamily="sans-serif" fontSize="13" fill="#1e40af" fontWeight="600">Conf A</text>
+        <text x="115" y="248" textAnchor="middle" fontFamily="sans-serif" fontSize="13" fill="#1e40af" fontWeight="600">Conf B</text>
+        <text x="400" y="160" textAnchor="middle" fontFamily="sans-serif" fontSize="16" fill="#92400e" fontWeight="700">Open Office</text>
+        <text x="684" y="92"  textAnchor="middle" fontFamily="sans-serif" fontSize="12" fill="#9d174d" fontWeight="600">Break Room</text>
+        <text x="684" y="248" textAnchor="middle" fontFamily="sans-serif" fontSize="12" fill="#14532d" fontWeight="600">Kitchen</text>
+        <text x="115" y="408" textAnchor="middle" fontFamily="sans-serif" fontSize="12" fill="#4c1d95">Office 1</text>
+        <text x="290" y="408" textAnchor="middle" fontFamily="sans-serif" fontSize="12" fill="#4c1d95">Office 2</text>
+        <text x="440" y="408" textAnchor="middle" fontFamily="sans-serif" fontSize="12" fill="#4c1d95">Office 3</text>
+        <text x="590" y="408" textAnchor="middle" fontFamily="sans-serif" fontSize="12" fill="#4c1d95">Office 4</text>
+        <text x="724" y="408" textAnchor="middle" fontFamily="sans-serif" fontSize="12" fill="#4c1d95">Office 5</text>
+        {[240, 310, 380, 450, 520].map((x, i) => (
+          <g key={i}>
+            <rect x={x} y="50"  width="48" height="28" rx="3" fill="#cbd5e1" stroke="#94a3b8" strokeWidth="1" />
+            <rect x={x} y="140" width="48" height="28" rx="3" fill="#cbd5e1" stroke="#94a3b8" strokeWidth="1" />
+            <rect x={x} y="230" width="48" height="28" rx="3" fill="#cbd5e1" stroke="#94a3b8" strokeWidth="1" />
+          </g>
+        ))}
+        <ellipse cx="115" cy="95"  rx="55" ry="32" fill="#bfdbfe" stroke="#93c5fd" strokeWidth="1.5" />
+        <ellipse cx="115" cy="250" rx="55" ry="32" fill="#bfdbfe" stroke="#93c5fd" strokeWidth="1.5" />
+        <line x1="215" y1="95"  x2="215" y2="135" stroke="#f5f5f2" strokeWidth="7" />
+        <line x1="215" y1="220" x2="215" y2="260" stroke="#f5f5f2" strokeWidth="7" />
+        <line x1="325" y1="325" x2="365" y2="325" stroke="#f5f5f2" strokeWidth="7" />
+        <line x1="475" y1="325" x2="515" y2="325" stroke="#f5f5f2" strokeWidth="7" />
+        <line x1="585" y1="95"  x2="585" y2="135" stroke="#f5f5f2" strokeWidth="7" />
+        <text x="755" y="490" fontFamily="sans-serif" fontSize="11" fill="#888">N ↑</text>
+      </svg>
+    );
+
+    // ─── PdfCanvas: renders a PDF page to <canvas>, then displays it as <img> ─────
+    const PdfCanvas = ({ url, file, onRendered, onDisplayUrl }) => {
+      const [imgUrl, setImgUrl]   = useState(null);
+      const [loading, setLoading] = useState(true);
+      const [error, setError]     = useState(null);
+
+      useEffect(() => {
+        let cancelled = false;
+        setLoading(true);
+        setError(null);
+        setImgUrl(null);
+
+        (async () => {
+          try {
+            const lib = await loadPdfJs();
+            const arrayBuffer = await new Promise((resolve, reject) => {
+              if (file) {
+                const reader = new FileReader();
+                reader.onload  = (e) => resolve(e.target.result);
+                reader.onerror = () => reject(new Error("FileReader failed"));
+                reader.readAsArrayBuffer(file);
+              } else {
+                fetch(url).then((r) => r.arrayBuffer()).then(resolve).catch(reject);
+              }
+            });
+
+            const pdf  = await lib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
+            const page = await pdf.getPage(1);
+
+            const vpHi = page.getViewport({ scale: 2 });
+            const hiCanvas = document.createElement("canvas");
+            hiCanvas.width  = vpHi.width;
+            hiCanvas.height = vpHi.height;
+            await page.render({ canvasContext: hiCanvas.getContext("2d"), viewport: vpHi }).promise;
+            if (cancelled) return;
+            if (onRendered) onRendered(hiCanvas);
+
+            const vpLo = page.getViewport({ scale: 1.5 });
+            const loCanvas = document.createElement("canvas");
+            loCanvas.width  = vpLo.width;
+            loCanvas.height = vpLo.height;
+            await page.render({ canvasContext: loCanvas.getContext("2d"), viewport: vpLo }).promise;
+            if (cancelled) return;
+            const dataUrl = loCanvas.toDataURL("image/jpeg", 0.88);
+            setImgUrl(dataUrl);
+            if (onDisplayUrl) onDisplayUrl(dataUrl);
+            setLoading(false);
+          } catch (err) {
+            if (!cancelled) {
+              console.error("PDF render:", err);
+              setError(err.message || "Could not render PDF");
+              setLoading(false);
+            }
+          }
+        })();
+
+        return () => { cancelled = true; };
+      }, [url, file]);
+
+      if (loading) return (
+        <div style={{ height: 300 }} className="bg-gray-100 flex flex-col items-center justify-center gap-3">
+          <div className="w-9 h-9 border-4 border-teal-500 border-t-transparent rounded-full animate-spin" />
+          <p className="text-sm text-gray-500 font-medium">Rendering PDF…</p>
+          <p className="text-xs text-gray-400">This may take a few seconds</p>
+        </div>
+      );
+      if (error) return (
+        <div style={{ height: 200 }} className="bg-red-50 flex flex-col items-center justify-center gap-2 p-4">
+          <p className="text-2xl">⚠️</p>
+          <p className="text-sm text-red-600 text-center font-medium">PDF could not render</p>
+          <p className="text-xs text-red-400 text-center">{error}</p>
+        </div>
+      );
+      return (
+        <img src={imgUrl} alt="floor plan" style={{ width: "100%", display: "block" }} draggable={false} />
+      );
+    };
+
+    // ─── tiny components ───────────────────────────────────────────────────────────
+    const Badge = ({ status }) => {
+      const cfg = {
+        in_progress:      ["bg-amber-100 text-amber-700",     "In Progress"],
+        ready_for_review: ["bg-blue-100 text-blue-700",       "Ready for Review"],
+        submitted:        ["bg-green-100 text-green-700",      "Submitted ✓"],
+        reviewed:         ["bg-emerald-100 text-emerald-700", "Reviewed ✓"],
+      };
+      const [cls, lbl] = cfg[status] ?? cfg.in_progress;
+      return <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${cls}`}>{lbl}</span>;
+    };
+    const Field = ({ label, children, hint }) => (
+      <div className="mb-4">
+        <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+        {children}
+        {hint && <p className="text-xs text-gray-400 mt-1">{hint}</p>}
+      </div>
+    );
+    const Input = (props) => (
+      <input {...props} className={`w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 ${props.className ?? ""}`} />
+    );
+    const Sel = ({ children, ...props }) => (
+      <select {...props} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-500">{children}</select>
+    );
+    const TA = (props) => (
+      <textarea {...props} rows={3} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 resize-none" />
+    );
+    const Btn = ({ children, variant = "primary", size = "md", ...props }) => {
+      const sz = { sm: "px-3 py-1.5 text-xs", md: "px-4 py-2 text-sm", lg: "px-5 py-3 text-base" };
+      const vr = {
+        primary:   "bg-teal-600 text-white hover:bg-teal-700",
+        secondary: "bg-gray-100 text-gray-700 hover:bg-gray-200",
+        danger:    "bg-red-600 text-white hover:bg-red-700",
+        success:   "bg-emerald-600 text-white hover:bg-emerald-700",
+        outline:   "border border-gray-300 text-gray-700 hover:bg-gray-50",
+        purple:    "bg-purple-600 text-white hover:bg-purple-700",
+      };
+      return (
+        <button {...props} className={`inline-flex items-center justify-center font-semibold rounded-lg transition-colors focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed ${sz[size]} ${vr[variant]} ${props.className ?? ""}`}>
+          {children}
+        </button>
+      );
+    };
+    const Divider = ({ label }) => (
+      <div className="flex items-center gap-3 my-5">
+        <div className="flex-1 h-px bg-gray-200" />
+        {label && <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">{label}</span>}
+        <div className="flex-1 h-px bg-gray-200" />
+      </div>
+    );
+
+    // ─── DeviceLocator ─────────────────────────────────────────────────────────────
+    const DeviceLocator = ({ floorPlan, device, allDevices = [], pdfDisplayUrl }) => {
+      if (!floorPlan || !device) return null;
+      const renderBg = () => {
+        if (floorPlan.isDemo) return <div style={{ opacity: 0.55, pointerEvents: "none" }}><DemoFloorPlanSVG /></div>;
+        const src = floorPlan.isPdf ? pdfDisplayUrl : floorPlan.url;
+        if (src) return <img src={src} alt="floor plan" style={{ width: "100%", display: "block", opacity: 0.6 }} draggable={false} />;
+        return <div style={{ height: 90, background: "#e2e8f0" }} />;
+      };
+      return (
+        <div className="relative overflow-hidden rounded-xl border border-gray-200 mb-4" style={{ height: 100 }}>
+          {renderBg()}
+          {allDevices.filter((d) => d.id !== device.id).map((d) => (
+            <div key={d.id} style={{
+              position: "absolute", left: `${d.x}%`, top: `${d.y}%`,
+              transform: "translate(-50%,-50%)",
+              width: 14, height: 14, borderRadius: "50%", border: "1.5px solid white",
+              background: d.complete ? "#10b981" : "#3b82f6",
+              opacity: 0.35,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 7, fontWeight: "bold", color: "white",
+            }}>{d.number}</div>
+          ))}
+          <div style={{ position: "absolute", left: `${device.x}%`, top: `${device.y}%`, transform: "translate(-50%,-50%)", zIndex: 10 }}>
+            <div style={{
+              width: 28, height: 28, borderRadius: "50%",
+              background: device.complete ? "#059669" : "#0d9488",
+              border: "2.5px solid white",
+              boxShadow: "0 0 0 3px rgba(13,148,136,0.35), 0 2px 6px rgba(0,0,0,0.3)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 10, fontWeight: "bold", color: "white",
+            }}>{device.number}</div>
+          </div>
+          <div className="absolute bottom-1.5 left-2 text-xs text-white font-semibold"
+            style={{ textShadow: "0 1px 3px rgba(0,0,0,0.7)" }}>
+            Device #{device.number} location
+          </div>
+        </div>
+      );
+    };
+
+    // ─── FloorPlanCanvas ───────────────────────────────────────────────────────────
+    const FloorPlanCanvas = ({ floorPlan, placing, suppressBanner, onClickOverlay, onPdfRendered, onPdfDisplayUrl, containerRef: extRef, children }) => {
+      const innerRef = useRef(null);
+      const [zoom, setZoom] = useState(1);
+
+      const attachInner = (el) => {
+        innerRef.current = el;
+        if (extRef) extRef.current = el;
+      };
+
+      const handleClick = (e) => {
+        if (!placing || !innerRef.current) return;
+        const rect = innerRef.current.getBoundingClientRect();
+        onClickOverlay(
+          ((e.clientX - rect.left) / rect.width)  * 100,
+          ((e.clientY - rect.top)  / rect.height) * 100,
+        );
+      };
+
+      return (
+        <div style={{ position: "relative", borderRadius: "0.75rem" }}
+          className={`select-none border-2 transition-colors ${placing ? "border-teal-500" : "border-gray-200"}`}>
+          <div style={{
+              overflow: zoom > 1 ? "auto" : "hidden",
+              height:   zoom > 1 ? 320 : undefined,
+              borderRadius: "0.75rem",
+            }}>
+            <div ref={attachInner} onClick={handleClick}
+              style={{ width: `${zoom * 100}%`, minHeight: 260, position: "relative" }}
+              className={placing ? "cursor-crosshair" : ""}>
+              {floorPlan?.isDemo ? (
+                <DemoFloorPlanSVG />
+              ) : floorPlan?.isPdf ? (
+                <PdfCanvas url={floorPlan.url} file={floorPlan.file} onRendered={onPdfRendered} onDisplayUrl={onPdfDisplayUrl} />
+              ) : floorPlan?.url ? (
+                <img src={floorPlan.url} alt="floor plan" style={{ width: "100%", display: "block" }} draggable={false} />
+              ) : null}
+              {children}
+              {placing && !suppressBanner && (
+                <div className="absolute inset-0 pointer-events-none flex items-end justify-center pb-4" style={{ zIndex: 20 }}>
+                  <div className="bg-teal-700 text-white text-sm px-4 py-2 rounded-full shadow-lg font-semibold">
+                    Tap floor plan to place device
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+          <div style={{ position: "absolute", bottom: 8, right: 8, zIndex: 30 }}
+            className="flex items-center gap-0.5 bg-black/55 rounded-lg px-2 py-1 backdrop-blur-sm">
+            <button
+              onClick={(e) => { e.stopPropagation(); setZoom((z) => Math.max(1, +(z - 0.5).toFixed(1))); }}
+              className="text-white text-xs font-bold px-1.5 py-0.5 rounded">−</button>
+            <span className="text-white text-xs font-semibold px-1 min-w-8 text-center">{zoom.toFixed(1)}×</span>
+            <button
+              onClick={(e) => { e.stopPropagation(); setZoom((z) => Math.min(3, +(z + 0.5).toFixed(1))); }}
+              className="text-white text-xs font-bold px-1.5 py-0.5 rounded">+</button>
+          </div>
+        </div>
+      );
+    };
+
+    // ─── ZoomedPreview component ───────────────────────────────────────────────────
+    const ZoomedPreview = ({ floorPlan, dev, pdfDisplayUrl, pdfCanvas, allDevices, onSelectDevice }) => {
+      const containerRef = useRef(null);
+      const renderBg = () => {
+        if (floorPlan.isDemo) return <div style={{ pointerEvents: "none" }}><DemoFloorPlanSVG /></div>;
+        const src = floorPlan.isPdf ? pdfDisplayUrl : floorPlan.url;
+        if (src) return <img src={src} alt="floor plan" style={{ width: "100%", display: "block" }} draggable={false} />;
+        return null;
+      };
+      return (
+        <div ref={containerRef} className="relative bg-gray-50 rounded-t-xl overflow-hidden" style={{ height: 280 }}>
+          <div style={{ transform: "scale(3)", transformOrigin: `${dev.x}% ${dev.y}%`, height: "100%" }}>
+            {renderBg()}
+          </div>
+          {allDevices.map((d) => (
+            <button
+              key={d.id}
+              onClick={() => onSelectDevice(d.id === dev.id ? null : d.id)}
+              style={{
+                position: "absolute", left: `${dev.x}%`, top: `${dev.y}%`,
+                transform: "translate(-50%,-50%) scale(3)",
+                transformOrigin: "center",
+              }}
+              className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white transition-transform ${
+                d.id === dev.id ? "scale-110 ring-2 ring-teal-400 ring-offset-2" : "hover:scale-110"
+              } ${d.complete ? "bg-emerald-500 border-2 border-white" : "bg-blue-600 border-2 border-white"}`}>
+              {d.number}
+            </button>
+          ))}
+          <div className="absolute inset-0 flex items-center justify-center text-white font-semibold pointer-events-none"
+            style={{ textShadow: "0 1px 3px rgba(0,0,0,0.7)", pointerEvents: "none" }}>
+            3× · tap pin to switch
+          </div>
+        </div>
+      );
+    };
+
+    // ─── main app ──────────────────────────────────────────────────────────────────
+    function SiteSurveyApp() {
+      const [projects, setProjects]             = useState([]);
+      const [dbReady, setDbReady]               = useState(false);
+      const [screen, setScreen]                 = useState("list");
+      const [activeId, setActiveId]             = useState(null);
+      const [activeFloorId, setActiveFloorId]   = useState(null);
+      const [activeDevId, setActiveDevId]       = useState(null);
+      const [tab, setTab]                       = useState("floors");
+      const [placing, setPlacing]               = useState(false);
+      const [toast, setToast]                   = useState(null);
+      const [confirmReady, setConfirmReady]     = useState(false);
+      const [editingFloorId, setEditingFloorId] = useState(null);
+      const [editFloorName, setEditFloorName]   = useState("");
+      const [pdfCanvas, setPdfCanvas]           = useState(null);
+      const [pdfDisplayUrl, setPdfDisplayUrl]   = useState(null);
+      const [scanModal, setScanModal]           = useState(null);
+      const [previewDevId, setPreviewDevId]     = useState(null);
+      const [editMapMode, setEditMapMode]       = useState(false);
+      const [draggingDevId, setDraggingDevId]   = useState(null);
+      const [localPdfFile, setLocalPdfFile]     = useState(null);
+      const fpContainerRef                      = useRef(null);
+      const justDraggedRef                      = useRef(false);
+      const [quickPlacePos, setQuickPlacePos]   = useState(null);
+      const [showTechEntry, setShowTechEntry]   = useState(false);
+      const [techCodeInput, setTechCodeInput]   = useState("");
+      const [techMode, setTechMode]             = useState(false);
+      const [np, setNp]                         = useState({ name: "", siteName: "", address: "", vsName: "", vsEmail: "", vsPreset: "" });
+      const emptyDf                             = { ceilingHeight: "", mountingMethod: "", deviceType: "", notes: "", photos: [] };
+      const [df, setDf]                         = useState(emptyDf);
+
+      // Load projects from Firestore on mount
+      useEffect(() => {
+        const unsubscribe = db.collection('projects')
+          .orderBy('createdAt', 'desc')
+          .onSnapshot((snapshot) => {
+            setProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            setDbReady(true);
+          }, (err) => {
+            console.error('Firestore error:', err);
+            setDbReady(true);
+          });
+        return unsubscribe;
+      }, []);
+
+      // Derived state
+      const project     = projects.find((p) => p.id === activeId);
+      const activeFloor = project?.floors.find((f) => f.id === activeFloorId);
+      const activeDev   = activeFloor?.devices.find((d) => d.id === activeDevId);
+      const allDevices  = project?.floors.flatMap((f) => f.devices) ?? [];
+      const totalDev    = allDevices.length;
+      const doneDev     = allDevices.filter((d) => d.complete).length;
+      const techLocked  = techMode && project?.status !== "in_progress";
+
+      const showToast = (msg, type = "success") => {
+        setToast({ msg, type });
+        setTimeout(() => setToast(null), 4000);
+      };
+
+      const getAccessCode = (proj) => (proj.id + "000000").slice(0, 6).toUpperCase();
+
+      // ── Firestore mutations ───────────────────────────────────────────────────────
+      const setProject = (id, updates) => {
+        db.collection('projects').doc(id).update(updates);
+      };
+
+      const setFloor = (pId, fId, updates) => {
+        const proj = projects.find(p => p.id === pId);
+        if (!proj) return;
+        const updatedFloors = proj.floors.map(f => f.id === fId ? { ...f, ...updates } : f);
+        db.collection('projects').doc(pId).update({ floors: updatedFloors });
+      };
+
+      const createProject = () => {
+        if (!np.name || !np.siteName || !np.vsName || !np.vsEmail) return;
+        const id = uid();
+        const proj = {
+          name: np.name, siteName: np.siteName, address: np.address,
+          vsContact: { name: np.vsName, email: np.vsEmail },
+          status: "in_progress",
+          floors: [{ id: uid(), name: "Floor 1", floorPlan: null, devices: [] }],
+          summary: { onsiteTechs: "", virtualPMs: "", duration: "", comments: "" },
+          createdAt: new Date().toISOString(),
+        };
+        db.collection('projects').doc(id).set(proj).then(() => {
+          setActiveId(id);
+          setTab("floors");
+          setNp({ name: "", siteName: "", address: "", vsName: "", vsEmail: "", vsPreset: "" });
+          setScreen("project");
+        });
+      };
+
+      const addFloor = () => {
+        const n = (project?.floors.length ?? 0) + 1;
+        setProject(activeId, {
+          floors: [...(project?.floors ?? []), { id: uid(), name: `Floor ${n}`, floorPlan: null, devices: [] }],
+        });
+      };
+
+      const deleteFloor = (fId) => {
+        if (project.floors.length <= 1) return showToast("A project needs at least one floor", "error");
+        setProject(activeId, { floors: project.floors.filter((f) => f.id !== fId) });
+        showToast("Floor removed");
+      };
+
+      const deleteProject = (id) => {
+        db.collection('projects').doc(id).delete();
+      };
+
+      const placeDevice = (x, y) => {
+        if (!activeFloor) return;
+        const dev = {
+          id: uid(), number: activeFloor.devices.length + 1,
+          x, y, ceilingHeight: "", mountingMethod: "", deviceType: "", notes: "", photos: [], complete: false,
+        };
+        setFloor(activeId, activeFloorId, { devices: [...activeFloor.devices, dev] });
+        setActiveDevId(dev.id);
+        setDf(emptyDf);
+        setPlacing(false);
+        setScreen("device");
+      };
+
+      const bulkPlaceDevices = (detected, sensorType) => {
+        if (!activeFloor) return;
+        const startNum = activeFloor.devices.length + 1;
+        const newDevs = detected.map((d, i) => ({
+          id: uid(), number: startNum + i,
+          x: d.x, y: d.y,
+          ceilingHeight: "", mountingMethod: "",
+          deviceType: d.type === "SENSOR" ? sensorType : d.type,
+          notes: "", photos: [], complete: false,
+        }));
+        setFloor(activeId, activeFloorId, { devices: [...activeFloor.devices, ...newDevs] });
+        setScanModal(null);
+        showToast(`✓ Placed ${newDevs.length} devices from markup`);
+      };
+
+      const saveDevice = () => {
+        const updated = activeFloor.devices.map((d) =>
+          d.id === activeDevId ? { ...d, ...df, complete: !!df.mountingMethod && !!df.ceilingHeight && !!df.deviceType } : d,
+        );
+        setFloor(activeId, activeFloorId, { devices: updated });
+        setScreen("floor");
+        showToast("Device saved ✓");
+      };
+
+      const deleteDevice = (devId) => {
+        const renumbered = activeFloor.devices
+          .filter((d) => d.id !== devId)
+          .map((d, i) => ({ ...d, number: i + 1 }));
+        setFloor(activeId, activeFloorId, { devices: renumbered });
+        showToast("Device removed");
+      };
+
+      const moveDevice = (devId, x, y) => {
+        setFloor(activeId, activeFloorId, {
+          devices: activeFloor.devices.map((d) =>
+            d.id === devId ? { ...d, x, y } : d,
+          ),
+        });
+      };
+
+      const quickPlaceDevice = (x, y) => {
+        if (justDraggedRef.current) return;
+        if (!activeFloor) return;
+        setQuickPlacePos({ x, y });
+      };
+
+      const confirmQuickPlace = (deviceType) => {
+        if (!quickPlacePos || !activeFloor) return;
+        const num = activeFloor.devices.length + 1;
+        const dev = {
+          id: uid(), number: num,
+          x: quickPlacePos.x, y: quickPlacePos.y,
+          ceilingHeight: "", mountingMethod: "",
+          deviceType: deviceType ?? "",
+          notes: "", photos: [], complete: false,
+        };
+        setFloor(activeId, activeFloorId, { devices: [...activeFloor.devices, dev] });
+        setQuickPlacePos(null);
+        showToast(`#${num} ${deviceType || "device"} added`);
+      };
+
+      const submitSurvey = async () => {
+        if (!project) return;
+
+        const payload = {
+          projectId: activeId,
+          projectName: project.name,
+          siteName: project.siteName,
+          address: project.address,
+          vsContact: project.vsContact,
+          submittedAt: new Date().toISOString(),
+          summary: project.summary,
+          floors: project.floors.map(floor => ({
+            floorName: floor.name,
+            devices: floor.devices.map(dev => ({
+              number: dev.number,
+              deviceType: dev.deviceType,
+              ceilingHeight: dev.ceilingHeight,
+              mountingMethod: dev.mountingMethod,
+              notes: dev.notes,
+              complete: dev.complete,
+              photos: dev.photos || [],
+            })),
+            deviceCounts: {
+              areaSensors: floor.devices.filter(d => d.deviceType === 'L410' || d.deviceType === 'E106').length,
+              en1: floor.devices.filter(d => d.deviceType === 'EN1').length,
+              gateways: floor.devices.filter(d => d.deviceType === 'GW').length,
+              total: floor.devices.length,
+              complete: floor.devices.filter(d => d.complete).length,
+            },
+            mountingCounts: {
+              T1: floor.devices.filter(d => d.mountingMethod === 'T1').length,
+              T2: floor.devices.filter(d => d.mountingMethod === 'T2').length,
+              T3: floor.devices.filter(d => d.mountingMethod === 'T3').length,
+              T4: floor.devices.filter(d => d.mountingMethod === 'T4').length,
+            },
+          })),
+        };
+
+        try {
+          showToast("Submitting survey...", "info");
+
+          if (N8N_WEBHOOK_URL && !N8N_WEBHOOK_URL.startsWith('REPLACE')) {
+            await fetch(N8N_WEBHOOK_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            });
+          }
+
+          await db.collection('projects').doc(activeId).update({
+            status: 'submitted',
+            submittedAt: new Date().toISOString(),
+          });
+
+          setConfirmReady(false);
+          showToast("✅ Survey submitted!");
+        } catch (err) {
+          console.error(err);
+          showToast("Submission failed — try again", "error");
+        }
+      };
+
+      const runScan = () => {
+        if (!pdfCanvas) return;
+        const detected = detectDevicesOnCanvas(pdfCanvas);
+        setScanModal({ detected, sensorType: "L410" });
+      };
+
+      const kitCounts = (proj) => {
+        const c = { T1: 0, T2: 0, T3: 0, T4: 0 };
+        (proj?.floors ?? []).flatMap((f) => f.devices).forEach((d) => {
+          if (c[d.mountingMethod] !== undefined) c[d.mountingMethod]++;
+        });
+        return c;
+      };
+
+      const scanHasGW     = scanModal?.detected.some((d) => d.type === "GW") ?? false;
+      const scanCount     = {
+        GW:     scanModal?.detected.filter((d) => d.type === "GW").length     ?? 0,
+        EN1:    scanModal?.detected.filter((d) => d.type === "EN1").length     ?? 0,
+        SENSOR: scanModal?.detected.filter((d) => d.type === "SENSOR").length  ?? 0,
+      };
+      const scanTotal     = (scanModal?.detected.length) ?? 0;
+
+      // Show loading screen while Firestore initializes
+      if (!dbReady) {
+        return (
+          <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+            <div className="text-center">
+              <div className="w-12 h-12 rounded-xl bg-teal-600 flex items-center justify-center mx-auto mb-4">
+                <span className="text-white text-xl font-bold">VS</span>
+              </div>
+              <p className="text-gray-500 text-sm">Loading surveys...</p>
+            </div>
+          </div>
+        );
+      }
+
+      // ── render ────────────────────────────────────────────────────────────────────
+      return (
+        <div className="min-h-screen bg-gray-50" style={{ fontFamily: "system-ui,-apple-system,sans-serif" }}>
+
+          {/* ── toast ── */}
+          {toast && (
+            <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[100] px-4 py-2 rounded-xl shadow-xl text-sm font-medium text-white pointer-events-none ${toast.type === "error" ? "bg-red-600" : toast.type === "info" ? "bg-blue-600" : "bg-gray-900"}`}>
+              {toast.msg}
+            </div>
+          )}
+
+          {/* ══════════════ PROJECT LIST ══════════════ */}
+          {screen === "list" && (
+            <div className="max-w-lg mx-auto pb-8">
+              <div className="bg-white border-b px-4 py-4 sticky top-0 z-10 flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded bg-teal-600 flex items-center justify-center">
+                      <span className="text-white text-xs font-bold">VS</span>
+                    </div>
+                    <h1 className="text-lg font-bold">Site Surveys</h1>
+                  </div>
+                  <p className="text-xs text-gray-500 ml-8">{projects.length} project{projects.length !== 1 && "s"}</p>
+                </div>
+                <Btn onClick={() => setScreen("newProject")}>+ New Project</Btn>
+              </div>
+              <div className="px-4 pt-3 pb-1">
+                <button
+                  onClick={() => { setShowTechEntry(!showTechEntry); setTechCodeInput(""); }}
+                  className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-teal-600 font-medium transition-colors">
+                  <span>🔧</span>
+                  <span>Field tech? Enter your project code</span>
+                  <span className="text-gray-400">{showTechEntry ? "▲" : "▼"}</span>
+                </button>
+                {showTechEntry && (
+                  <div className="mt-2 mb-2 bg-teal-50 border border-teal-200 rounded-xl p-3">
+                    <p className="text-xs text-teal-800 font-medium mb-2">
+                      Enter the 6-character code your VS Contact shared with you
+                    </p>
+                    <div className="flex gap-2">
+                      <input
+                        className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono uppercase tracking-widest focus:outline-none focus:ring-2 focus:ring-teal-500"
+                        placeholder="ABC123"
+                        value={techCodeInput}
+                        maxLength={6}
+                        onChange={(e) => setTechCodeInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
+                        onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.nextSibling?.click(); }}
+                      />
+                      <Btn onClick={() => {
+                        const match = projects.find((p) => getAccessCode(p) === techCodeInput);
+                        if (match) {
+                          setTechMode(true);
+                          setActiveId(match.id);
+                          setTab("floors");
+                          setShowTechEntry(false);
+                          setTechCodeInput("");
+                          setScreen("project");
+                        } else {
+                          showToast("Code not found — double-check with your VS Contact", "error");
+                        }
+                      }}
+                      disabled={techCodeInput.length < 5}>
+                        Go →
+                      </Btn>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-4 space-y-3">
+                {projects.length === 0 && (
+                  <div className="text-center py-16 text-gray-400">
+                    <div className="text-5xl mb-3">📋</div>
+                    <p className="text-sm font-medium">No projects yet</p>
+                  </div>
+                )}
+                {projects.map((p) => {
+                  const total = p.floors.flatMap((f) => f.devices).length;
+                  const done  = p.floors.flatMap((f) => f.devices).filter((d) => d.complete).length;
+                  return (
+                    <button key={p.id}
+                      onClick={() => { setTechMode(false); setActiveId(p.id); setTab("floors"); setScreen("project"); }}
+                      className="w-full bg-white rounded-xl border border-gray-200 p-4 text-left hover:border-teal-400 hover:shadow-sm transition-all">
+                      <div className="flex items-start justify-between gap-2 mb-1">
+                        <div className="min-w-0">
+                          <p className="font-semibold text-sm truncate">{p.name}</p>
+                          <p className="text-xs text-gray-500">{p.siteName}</p>
+                        </div>
+                        <Badge status={p.status} />
+                      </div>
+                      <div className="flex flex-wrap gap-3 mt-2 text-xs text-gray-400">
+                        {p.address && <span>📍 {p.address}</span>}
+                        <span className={total > 0 ? (done === total ? "text-emerald-600 font-medium" : "text-blue-600 font-medium") : ""}>
+                          {total === 0 ? "No devices" : `${done}/${total} devices done`}
+                        </span>
+                        <span>{p.floors.length} floor{p.floors.length !== 1 && "s"}</span>
+                      </div>
+                      <div className="mt-1 text-xs text-gray-400">
+                        👤 VS: <span className="text-gray-600 font-medium">{p.vsContact.name || "Unassigned"}</span>
+                      </div>
+                      {total > 0 && (
+                        <div className="mt-2.5 h-1 bg-gray-100 rounded-full overflow-hidden">
+                          <div className="h-full bg-teal-500 rounded-full" style={{ width: `${(done / total) * 100}%` }} />
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ══════════════ NEW PROJECT ══════════════ */}
+          {screen === "newProject" && (
+            <div className="max-w-lg mx-auto pb-8">
+              <div className="bg-white border-b px-4 py-3 flex items-center gap-3 sticky top-0 z-10">
+                <button onClick={() => setScreen("list")} className="text-teal-600 text-sm font-medium">← Back</button>
+                <h1 className="font-bold">New Project</h1>
+              </div>
+              <div className="p-4">
+                <Field label="Project Name" hint="e.g. Chicago HQ – Floors 3–5">
+                  <Input placeholder="Project name…" value={np.name} onChange={(e) => setNp({ ...np, name: e.target.value })} />
+                </Field>
+                <Field label="Site / Company">
+                  <Input placeholder="Company or client name…" value={np.siteName} onChange={(e) => setNp({ ...np, siteName: e.target.value })} />
+                </Field>
+                <Field label="Address">
+                  <Input placeholder="123 Main St, City, State…" value={np.address} onChange={(e) => setNp({ ...np, address: e.target.value })} />
+                </Field>
+                <Divider label="VergeSense Contact" />
+                <Field label="Select Contact">
+                  <Sel value={np.vsPreset} onChange={(e) => {
+                    const found = VS_CONTACTS.find((c) => c.name === e.target.value);
+                    if (found) setNp({ ...np, vsPreset: found.name, vsName: found.name === "Other (enter below)" ? "" : found.name, vsEmail: found.email });
+                  }}>
+                    <option value="">Choose a VS contact…</option>
+                    {VS_CONTACTS.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
+                  </Sel>
+                </Field>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Name">
+                    <Input placeholder="Full name" value={np.vsName} onChange={(e) => setNp({ ...np, vsName: e.target.value })} />
+                  </Field>
+                  <Field label="Email">
+                    <Input type="email" placeholder="email@vergesense.com" value={np.vsEmail} onChange={(e) => setNp({ ...np, vsEmail: e.target.value })} />
+                  </Field>
+                </div>
+                <p className="text-xs text-gray-400 mb-5">
+                  Upload floor plan markups per-floor after creating the project. If you upload a PDF markup, the app can auto-detect and place device pins for you.
+                </p>
+                <Btn size="lg" className="w-full" disabled={!np.name || !np.siteName || !np.vsName || !np.vsEmail} onClick={createProject}>
+                  Create Project →
+                </Btn>
+              </div>
+            </div>
+          )}
+
+          {/* ══════════════ PROJECT DETAIL ══════════════ */}
+          {screen === "project" && project && (
+            <div className="max-w-lg mx-auto" style={{ minHeight: "100vh" }}>
+              <div className="bg-white border-b px-4 py-3 sticky top-0 z-10">
+                <button onClick={() => setScreen("list")} className="text-teal-600 text-sm font-medium">← Projects</button>
+                <div className="flex items-start justify-between gap-2 mt-0.5">
+                  <div className="min-w-0">
+                    <h2 className="font-bold truncate">{project.name}</h2>
+                    <p className="text-xs text-gray-500">{project.siteName}{project.address && ` · ${project.address}`}</p>
+                  </div>
+                  <Badge status={project.status} />
+                </div>
+                <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                  <div className="inline-flex items-center gap-1.5 text-xs bg-teal-50 text-teal-700 px-2.5 py-1 rounded-full">
+                    <span>👤</span>
+                    <span className="font-medium">{project.vsContact.name}</span>
+                    <span className="text-teal-400">· {project.vsContact.email}</span>
+                  </div>
+                  <div className="inline-flex items-center gap-1.5 text-xs bg-gray-100 text-gray-600 px-2.5 py-1 rounded-full">
+                    <span>🔧</span>
+                    <span>Tech code:</span>
+                    <code className="font-mono font-bold text-gray-800 tracking-widest">{getAccessCode(project)}</code>
+                    <button
+                      onClick={() => {
+                        try { navigator.clipboard.writeText(getAccessCode(project)); } catch (_) {}
+                        showToast("Tech code copied!");
+                      }}
+                      className="text-teal-600 font-semibold hover:text-teal-700 ml-0.5">
+                      Copy
+                    </button>
+                  </div>
+                  {!techMode && (
+                    <button
+                      onClick={() => {
+                        if (window.confirm(`Delete project "${project.name}"? This cannot be undone.`)) {
+                          deleteProject(activeId);
+                          setScreen("list");
+                          setActiveId(null);
+                          showToast("Project deleted");
+                        }
+                      }}
+                      className="inline-flex items-center gap-1.5 text-xs bg-red-50 text-red-600 px-2.5 py-1 rounded-full hover:bg-red-100">
+                      <span>🗑️</span>
+                      <span>Delete</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="bg-white border-b flex sticky top-[87px] z-10">
+                {[["floors", `🏢 Floors (${project.floors.length})`], ["summary", "📋 Summary"]].map(([key, lbl]) => (
+                  <button key={key} onClick={() => setTab(key)}
+                    className={`flex-1 py-2.5 text-xs font-semibold border-b-2 transition-colors ${tab === key ? "border-teal-600 text-teal-700" : "border-transparent text-gray-500 hover:text-gray-700"}`}>
+                    {lbl}
+                  </button>
+                ))}
+              </div>
+
+              {/* ── FLOORS TAB ── */}
+              {tab === "floors" && (
+                <div className="p-4 space-y-3">
+                  {project.floors.map((floor) => {
+                    const fd = floor.devices.filter((d) => d.complete).length;
+                    const ft = floor.devices.length;
+                    return (
+                      <div key={floor.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+                        <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100">
+                          <span className="text-base">🏢</span>
+                          {editingFloorId === floor.id ? (
+                            <input autoFocus
+                              className="flex-1 border border-teal-400 rounded px-2 py-1 text-sm focus:outline-none"
+                              value={editFloorName}
+                              onChange={(e) => setEditFloorName(e.target.value)}
+                              onBlur={() => {
+                                if (editFloorName.trim()) setFloor(activeId, floor.id, { name: editFloorName.trim() });
+                                setEditingFloorId(null);
+                              }}
+                              onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); }}
+                            />
+                          ) : (
+                            <button className="flex-1 text-left text-sm font-semibold text-gray-800 hover:text-teal-700"
+                              onDoubleClick={() => { setEditingFloorId(floor.id); setEditFloorName(floor.name); }}>
+                              {floor.name}
+                            </button>
+                          )}
+                          <span className="text-xs text-gray-400 flex-shrink-0">{fd}/{ft} done</span>
+                          {!techMode && project.floors.length > 1 && (
+                            <button onClick={() => deleteFloor(floor.id)} className="text-gray-300 hover:text-red-400 text-xs transition-colors">✕</button>
+                          )}
+                        </div>
+                        <button className="w-full text-left block"
+                          onClick={() => { setActiveFloorId(floor.id); setPdfCanvas(null); setPdfDisplayUrl(null); setPlacing(false); setPreviewDevId(null); setScreen("floor"); }}>
+                          {floor.floorPlan ? (
+                            <div className="relative overflow-hidden bg-gray-50" style={{ maxHeight: 140 }}>
+                              {floor.floorPlan.isDemo ? (
+                                <div style={{ pointerEvents: "none" }}><DemoFloorPlanSVG /></div>
+                              ) : floor.floorPlan.isPdf ? (
+                                floor.floorPlan.thumbnailUrl ? (
+                                  <img src={floor.floorPlan.thumbnailUrl} alt={floor.name} style={{ width: "100%", display: "block" }} />
+                                ) : (
+                                  <div className="bg-gray-100 flex items-center justify-center" style={{ height: 120 }}>
+                                    <span className="text-gray-500 text-sm">📄 {floor.floorPlan.name ?? "PDF Floor Plan"}</span>
+                                  </div>
+                                )
+                              ) : (
+                                <img src={floor.floorPlan.url} alt={floor.name} style={{ width: "100%", display: "block" }} />
+                              )}
+                              {ft > 0 && (
+                                <div className="absolute top-2 right-2 bg-black/50 text-white text-xs px-2 py-0.5 rounded-full">{ft} device{ft !== 1 && "s"}</div>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="bg-gray-50 flex flex-col items-center justify-center gap-1 py-7 text-gray-400 hover:bg-teal-50 hover:text-teal-600 transition-colors">
+                              <span className="text-2xl">🗺️</span>
+                              <span className="text-xs font-medium">Open to upload floor plan</span>
+                            </div>
+                          )}
+                        </button>
+                      </div>
+                    );
+                  })}
+                  {!techMode && (
+                    <>
+                      <button onClick={addFloor}
+                        className="w-full border-2 border-dashed border-gray-300 rounded-xl py-4 text-sm text-gray-500 hover:border-teal-400 hover:text-teal-600 transition-colors font-medium">
+                        + Add Floor
+                      </button>
+                      <p className="text-xs text-gray-400 text-center">Double-tap a floor name to rename it</p>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* ── SUMMARY TAB ── */}
+              {tab === "summary" && (
+                <div className="p-4 pb-8">
+                  <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4">
+                    <h3 className="text-sm font-semibold mb-1">Mounting Kit Count</h3>
+                    <p className="text-xs text-gray-400 mb-3">Auto-calculated across all floors</p>
+                    <div className="grid grid-cols-4 gap-2">
+                      {Object.entries(kitCounts(project)).map(([type, count]) => (
+                        <div key={type} className={`text-center rounded-xl p-3 border ${count > 0 ? "bg-teal-50 border-teal-200" : "bg-gray-50 border-gray-100"}`}>
+                          <div className={`text-2xl font-bold ${count > 0 ? "text-teal-700" : "text-gray-400"}`}>{count}</div>
+                          <div className={`text-xs font-semibold ${count > 0 ? "text-teal-600" : "text-gray-400"}`}>{type}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-3 pt-3 border-t border-gray-100 flex justify-between text-xs text-gray-500">
+                      <span>Total devices: <strong>{totalDev}</strong></span>
+                      <span>Complete: <strong className="text-emerald-600">{doneDev}</strong></span>
+                    </div>
+                  </div>
+                  <div className="bg-white rounded-xl border border-gray-200 p-4">
+                    <h3 className="text-sm font-semibold mb-4">Installation Details</h3>
+                    {techLocked && (
+                      <div className="mb-3 flex items-center gap-1.5 text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                        <span>🔒</span><span className="font-medium">Locked after submission</span>
+                      </div>
+                    )}
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="# Onsite Techs">
+                        <Input type="number" min="0" placeholder="0" value={project.summary.onsiteTechs} disabled={techLocked}
+                          onChange={(e) => setProject(activeId, { summary: { ...project.summary, onsiteTechs: e.target.value } })} />
+                      </Field>
+                      <Field label="# Virtual PMs">
+                        <Input type="number" min="0" placeholder="0" value={project.summary.virtualPMs} disabled={techLocked}
+                          onChange={(e) => setProject(activeId, { summary: { ...project.summary, virtualPMs: e.target.value } })} />
+                      </Field>
+                    </div>
+                    <Field label="Installation Duration" hint="e.g. 4 hours, 2 days">
+                      <Input placeholder="Duration…" value={project.summary.duration} disabled={techLocked}
+                        onChange={(e) => setProject(activeId, { summary: { ...project.summary, duration: e.target.value } })} />
+                    </Field>
+                    <Field label="Additional Comments">
+                      <TA placeholder="Notes for the VergeSense team…" value={project.summary.comments} disabled={techLocked}
+                        onChange={(e) => setProject(activeId, { summary: { ...project.summary, comments: e.target.value } })} />
+                    </Field>
+                  </div>
+                  {project.status === "in_progress" && !techMode && (
+                    <Btn variant="success" size="lg" className="w-full mt-4" onClick={() => setConfirmReady(true)}>
+                      ✓ Submit Survey
+                    </Btn>
+                  )}
+                  {project.status === "submitted" && (
+                    <div className="mt-4 bg-green-50 border border-green-200 rounded-xl p-4 text-sm text-green-700 text-center">
+                      <p className="font-semibold">✅ Survey Submitted</p>
+                      <p className="text-xs mt-1">Thank you! Your survey has been received.</p>
+                    </div>
+                  )}
+                  {project.status === "reviewed" && (
+                    <div className="mt-4 bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-sm text-emerald-700 text-center font-semibold">✅ Reviewed by VergeSense</div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ══════════════ FLOOR DETAIL ══════════════ */}
+          {screen === "floor" && project && activeFloor && (
+            <div className="max-w-lg mx-auto" style={{ minHeight: "100vh" }}>
+              <div className="bg-white border-b px-4 py-3 sticky top-0 z-10">
+                <button onClick={() => { setPlacing(false); setPreviewDevId(null); setEditMapMode(false); setDraggingDevId(null); setScreen("project"); setTab("floors"); }} className="text-teal-600 text-sm font-medium">
+                  ← {project.name}
+                </button>
+                <div className="flex items-center justify-between mt-0.5">
+                  <h2 className="font-bold">{activeFloor.name}</h2>
+                  <div className="flex items-center gap-2">
+                    {techMode && (
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${techLocked ? "bg-red-100 text-red-600" : "bg-amber-100 text-amber-700"}`}>
+                        {techLocked ? "🔒 Locked" : "🔧 Tech Mode"}
+                      </span>
+                    )}
+                    <span className="text-xs text-gray-500">
+                      {activeFloor.devices.filter((d) => d.complete).length}/{activeFloor.devices.length} done
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-4">
+                {!activeFloor.floorPlan && !techMode && (
+                  <label className="block w-full border-2 border-dashed border-gray-300 rounded-xl p-8 text-center cursor-pointer hover:border-teal-400 transition-colors mb-4">
+                    <div className="text-gray-400">
+                      <div className="text-5xl mb-2">🗺️</div>
+                      <p className="text-sm font-medium">Upload floor plan for {activeFloor.name}</p>
+                      <p className="text-xs mt-1">JPG, PNG, or PDF markup</p>
+                      <p className="text-xs mt-1 text-teal-600 font-medium">PDF markups support auto device detection ✨</p>
+                    </div>
+                    <input type="file" accept="image/*,application/pdf" className="hidden"
+                      onChange={async (e) => {
+                        const f = e.target.files?.[0];
+                        if (!f) return;
+                        setPdfCanvas(null);
+                        if (f.type === 'application/pdf') {
+                          setFloor(activeId, activeFloorId, {
+                            floorPlan: { isPdf: true, name: f.name, url: null, file: null, thumbnailUrl: null }
+                          });
+                          setLocalPdfFile(f);
+                        } else {
+                          const dataUrl = await fileToBase64(f);
+                          setFloor(activeId, activeFloorId, {
+                            floorPlan: { isPdf: false, name: f.name, url: dataUrl, file: null }
+                          });
+                        }
+                      }} />
+                  </label>
+                )}
+
+                {activeFloor.floorPlan && (
+                  <>
+                    {activeFloor.devices.length > 0 && (
+                      <div className="flex items-center gap-2 mb-3">
+                        <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                          <div className="h-full bg-teal-500 rounded-full"
+                            style={{ width: `${(activeFloor.devices.filter((d) => d.complete).length / activeFloor.devices.length) * 100}%` }} />
+                        </div>
+                        <span className="text-xs font-medium text-gray-600">
+                          {activeFloor.devices.filter((d) => d.complete).length}/{activeFloor.devices.length}
+                        </span>
+                      </div>
+                    )}
+
+                    <FloorPlanCanvas
+                      floorPlan={activeFloor.floorPlan}
+                      placing={placing || editMapMode}
+                      suppressBanner={editMapMode}
+                      onClickOverlay={editMapMode ? quickPlaceDevice : placeDevice}
+                      onPdfRendered={(canvas) => setPdfCanvas(canvas)}
+                      onPdfDisplayUrl={(url) => {
+                        setPdfDisplayUrl(url);
+                        if (activeFloor?.floorPlan && !activeFloor.floorPlan.thumbnailUrl) {
+                          setFloor(activeId, activeFloorId, { floorPlan: { ...activeFloor.floorPlan, thumbnailUrl: url } });
+                        }
+                      }}
+                      containerRef={fpContainerRef}
+                    >
+                      {activeFloor.devices.map((dev) => {
+                        const isDragging = draggingDevId === dev.id;
+                        return (
+                          <div key={dev.id}
+                            style={{
+                              position: "absolute",
+                              left: `${dev.x}%`, top: `${dev.y}%`,
+                              transform: "translate(-50%,-50%)",
+                              zIndex: isDragging ? 30 : 10,
+                              touchAction: editMapMode ? "none" : "auto",
+                            }}>
+                            <button
+                              onPointerDown={editMapMode ? (e) => {
+                                e.preventDefault(); e.stopPropagation();
+                                e.currentTarget.setPointerCapture(e.pointerId);
+                                setDraggingDevId(dev.id);
+                              } : undefined}
+                              onPointerMove={editMapMode ? (e) => {
+                                if (draggingDevId !== dev.id || !fpContainerRef.current) return;
+                                e.preventDefault();
+                                justDraggedRef.current = true;
+                                const rect = fpContainerRef.current.getBoundingClientRect();
+                                moveDevice(dev.id,
+                                  Math.max(1, Math.min(99, ((e.clientX - rect.left) / rect.width)  * 100)),
+                                  Math.max(1, Math.min(99, ((e.clientY - rect.top)  / rect.height) * 100)),
+                                );
+                              } : undefined}
+                              onPointerUp={editMapMode ? () => {
+                                setDraggingDevId(null);
+                                setTimeout(() => { justDraggedRef.current = false; }, 120);
+                              } : undefined}
+                              onPointerCancel={editMapMode ? () => {
+                                setDraggingDevId(null);
+                                justDraggedRef.current = false;
+                              } : undefined}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (editMapMode || placing) return;
+                                setPreviewDevId((cur) => (cur === dev.id ? null : dev.id));
+                              }}
+                              className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-lg border-2 transition-transform
+                                ${editMapMode
+                                  ? `border-yellow-300 ring-1 ring-yellow-400 ${isDragging ? "scale-110 cursor-grabbing" : "cursor-grab"}`
+                                  : previewDevId === dev.id
+                                    ? "border-teal-300 scale-110 ring-2 ring-teal-400 ring-offset-1"
+                                    : "border-white hover:scale-110"}
+                                ${dev.complete ? "bg-emerald-500" : "bg-blue-600"}`}>
+                              {dev.number}
+                            </button>
+                            {editMapMode && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); deleteDevice(dev.id); }}
+                                className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 z-20"
+                                style={{ fontSize: 10, fontWeight: "bold", lineHeight: 1 }}>
+                                ×
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+
+                      {quickPlacePos && (
+                        <div style={{
+                          position: "absolute",
+                          left: `${quickPlacePos.x}%`, top: `${quickPlacePos.y}%`,
+                          transform: "translate(-50%,-50%)",
+                          zIndex: 25, pointerEvents: "none",
+                        }}>
+                          <div className="w-8 h-8 rounded-full bg-yellow-400 border-2 border-white shadow-lg flex items-center justify-center animate-pulse">
+                            <span style={{ fontSize: 16 }}>+</span>
+                          </div>
+                        </div>
+                      )}
+                    </FloorPlanCanvas>
+
+                    {quickPlacePos && (
+                      <div className="fixed inset-0 z-50 flex items-end justify-center"
+                        style={{ background: "rgba(0,0,0,0.35)" }}
+                        onClick={() => setQuickPlacePos(null)}>
+                        <div className="bg-white rounded-t-2xl p-5 w-full max-w-lg shadow-2xl"
+                          onClick={(e) => e.stopPropagation()}>
+                          <p className="text-sm font-bold text-gray-800 text-center mb-1">What type of device?</p>
+                          <p className="text-xs text-gray-400 text-center mb-4">Select the device type to place at this location</p>
+                          <div className="grid grid-cols-2 gap-3">
+                            {DEVICE_TYPES.map((t) => (
+                              <button key={t} onClick={() => confirmQuickPlace(t)}
+                                className="py-3 rounded-xl border-2 border-gray-200 text-sm font-semibold text-gray-700 hover:border-teal-500 hover:bg-teal-50 hover:text-teal-700 transition-colors">
+                                {t}
+                              </button>
+                            ))}
+                          </div>
+                          <button onClick={() => setQuickPlacePos(null)}
+                            className="mt-4 w-full text-sm text-gray-400 py-2 hover:text-gray-600">
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {previewDevId && !editMapMode && (() => {
+                      const pDev = activeFloor.devices.find((d) => d.id === previewDevId);
+                      if (!pDev) return null;
+                      return (
+                        <div className="mt-3 rounded-xl overflow-hidden border-2 border-teal-300 shadow-lg">
+                          <ZoomedPreview
+                            floorPlan={activeFloor.floorPlan}
+                            dev={pDev}
+                            pdfDisplayUrl={pdfDisplayUrl}
+                            pdfCanvas={pdfCanvas}
+                            allDevices={activeFloor.devices}
+                            onSelectDevice={setPreviewDevId}
+                          />
+                          <div className="bg-white px-4 py-3 flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-bold text-gray-800 truncate">
+                                Device #{pDev.number}{pDev.deviceType ? ` · ${pDev.deviceType}` : ""}
+                                {pDev.complete && <span className="ml-2 text-emerald-500 text-xs font-semibold">✓ Done</span>}
+                              </p>
+                              <p className="text-xs text-gray-400 mt-0.5">
+                                {pDev.mountingMethod
+                                  ? `Mount: ${pDev.mountingMethod}`
+                                  : <span className="text-amber-500 font-medium">No mount method set</span>}
+                                {pDev.ceilingHeight && ` · ${pDev.ceilingHeight}`}
+                              </p>
+                            </div>
+                            <div className="flex gap-2 flex-shrink-0">
+                              <Btn variant="secondary" size="sm" onClick={() => setPreviewDevId(null)}>Close</Btn>
+                              {!techLocked && (
+                                <Btn size="sm" onClick={() => {
+                                  setActiveDevId(pDev.id);
+                                  setDf({ ceilingHeight: pDev.ceilingHeight, mountingMethod: pDev.mountingMethod, deviceType: pDev.deviceType, notes: pDev.notes, photos: pDev.photos });
+                                  setPreviewDevId(null);
+                                  setScreen("device");
+                                }}>Edit →</Btn>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {!techMode && (
+                      <div className="flex flex-wrap gap-2 mt-3">
+                        {editMapMode ? (
+                          <>
+                            <div className="w-full text-xs text-center text-gray-600 bg-yellow-50 border border-yellow-200 rounded-lg py-2 px-3">
+                              ✏️ <strong>Edit mode:</strong> tap map to add · drag pins to move · tap <span className="text-red-500 font-bold">×</span> to delete
+                            </div>
+                            <Btn variant="success" className="flex-1"
+                              onClick={() => { setEditMapMode(false); setDraggingDevId(null); }}>
+                              ✓ Done Editing
+                            </Btn>
+                          </>
+                        ) : (
+                          <>
+                            {activeFloor.floorPlan.isPdf && pdfCanvas && (
+                              <Btn variant="purple" onClick={runScan}>✨ Scan Markup</Btn>
+                            )}
+                            <Btn variant="secondary"
+                              onClick={() => { setEditMapMode(true); setPlacing(false); setPreviewDevId(null); }}>
+                              ✏️ Edit Map
+                            </Btn>
+                            <label className="border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-600 cursor-pointer hover:bg-gray-50 font-medium">
+                              Change Map
+                              <input type="file" accept="image/*,application/pdf" className="hidden"
+                                onChange={async (e) => {
+                                  const f = e.target.files?.[0];
+                                  if (!f) return;
+                                  setPdfCanvas(null);
+                                  if (f.type === 'application/pdf') {
+                                    setFloor(activeId, activeFloorId, {
+                                      floorPlan: { isPdf: true, name: f.name, url: null, file: null, thumbnailUrl: null }
+                                    });
+                                    setLocalPdfFile(f);
+                                  } else {
+                                    const dataUrl = await fileToBase64(f);
+                                    setFloor(activeId, activeFloorId, {
+                                      floorPlan: { isPdf: false, name: f.name, url: dataUrl, file: null }
+                                    });
+                                  }
+                                }} />
+                            </label>
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    {!techMode && activeFloor.floorPlan.isPdf && !pdfCanvas && (
+                      <p className="text-xs text-purple-500 mt-2 font-medium">
+                        ✨ Scan Markup will appear once the PDF finishes rendering
+                      </p>
+                    )}
+
+                    <div className="flex gap-4 mt-2">
+                      <span className="text-xs text-gray-400 flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-blue-600 inline-block" /> Incomplete</span>
+                      <span className="text-xs text-gray-400 flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-emerald-500 inline-block" /> Complete</span>
+                    </div>
+                  </>
+                )}
+
+                {activeFloor.devices.length > 0 && (
+                  <div className="mt-5">
+                    <h3 className="text-sm font-semibold text-gray-700 mb-2">Devices on {activeFloor.name}</h3>
+                    <div className="space-y-2">
+                      {activeFloor.devices.map((dev) => (
+                        <div key={dev.id} className="bg-white rounded-xl border border-gray-200 p-3 flex items-center gap-3">
+                          <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0 ${dev.complete ? "bg-emerald-500" : "bg-blue-600"}`}>
+                            {dev.number}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold">Device #{dev.number}{dev.deviceType && ` · ${dev.deviceType}`}</p>
+                            <p className="text-xs text-gray-400">
+                              {dev.mountingMethod ? `Mount: ${dev.mountingMethod}` : <span className="text-amber-600">No mount method</span>}
+                              {dev.ceilingHeight && ` · ${dev.ceilingHeight}`}
+                            </p>
+                            {dev.photos.length > 0 && <p className="text-xs text-gray-400">📷 {dev.photos.length} photo{dev.photos.length !== 1 && "s"}</p>}
+                          </div>
+                          <div className="flex gap-1 flex-shrink-0">
+                            {!techLocked && (
+                              <button onClick={() => {
+                                setActiveDevId(dev.id);
+                                setDf({ ceilingHeight: dev.ceilingHeight, mountingMethod: dev.mountingMethod, deviceType: dev.deviceType, notes: dev.notes, photos: dev.photos });
+                                setScreen("device");
+                              }} className="text-teal-600 text-xs font-medium px-2.5 py-1.5 rounded-lg hover:bg-teal-50">Edit</button>
+                            )}
+                            {!techMode && (
+                              <button onClick={() => deleteDevice(dev.id)} className="text-red-500 text-xs font-medium px-2.5 py-1.5 rounded-lg hover:bg-red-50">✕</button>
+                            )}
+                            {techLocked && <span className="text-xs text-gray-400 px-2 py-1.5">🔒</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ══════════════ DEVICE FORM ══════════════ */}
+          {screen === "device" && project && activeFloor && activeDev && (
+            <div className="max-w-lg mx-auto pb-8">
+              <div className="bg-white border-b px-4 py-3 flex items-center justify-between sticky top-0 z-10">
+                <button onClick={() => setScreen("floor")} className="text-teal-600 text-sm font-medium">← {activeFloor.name}</button>
+                <h2 className="font-bold">Device #{activeDev.number}{activeDev.deviceType && ` · ${activeDev.deviceType}`}</h2>
+                <div className="w-16" />
+              </div>
+              <div className="p-4">
+                <DeviceLocator
+                  floorPlan={activeFloor.floorPlan}
+                  device={activeDev}
+                  allDevices={activeFloor.devices}
+                  pdfDisplayUrl={pdfDisplayUrl}
+                />
+
+                {techLocked && (
+                  <div className="mb-4 bg-red-50 border border-red-200 rounded-xl p-3 flex items-start gap-2">
+                    <span className="text-lg mt-0.5">🔒</span>
+                    <div>
+                      <p className="text-sm font-semibold text-red-700">Survey Submitted</p>
+                      <p className="text-xs text-red-500 mt-0.5">This project has been submitted for VS review. Editing is locked.</p>
+                    </div>
+                  </div>
+                )}
+                <Field label="Ceiling Height">
+                  <Input placeholder='e.g. 9ft, 10ft 6in' value={df.ceilingHeight} onChange={(e) => setDf({ ...df, ceilingHeight: e.target.value })} disabled={techLocked} />
+                </Field>
+                <Field label="Mounting Method">
+                  <Sel value={df.mountingMethod} onChange={(e) => setDf({ ...df, mountingMethod: e.target.value })} disabled={techLocked}>
+                    <option value="">Select mounting method…</option>
+                    {MOUNTING.map((m) => <option key={m} value={m}>{m}</option>)}
+                  </Sel>
+                  <p className="text-xs text-gray-400 mt-1">T1 = magnet · T2 = screws · T3 = adhesive, angle mounts · T4 = drop rods</p>
+                </Field>
+                <Field label="Device Type">
+                  <Sel value={df.deviceType} onChange={(e) => setDf({ ...df, deviceType: e.target.value })} disabled={techLocked}>
+                    <option value="">Select device type…</option>
+                    {DEVICE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                  </Sel>
+                </Field>
+                <Field label="Notes">
+                  <TA placeholder="Anything specific about this device location…" value={df.notes} onChange={(e) => setDf({ ...df, notes: e.target.value })} disabled={techLocked} />
+                </Field>
+                <Field label="Photos" hint={techLocked ? undefined : "Tap + to take a photo or choose from gallery"}>
+                  <div className="flex flex-wrap gap-2">
+                    {df.photos.map((photo, i) => (
+                      <div key={i} className="relative w-20 h-20 flex-shrink-0">
+                        <img src={photo} alt={`photo ${i + 1}`} className="w-full h-full object-cover rounded-lg border border-gray-200" />
+                        {!techLocked && (
+                          <button onClick={() => setDf({ ...df, photos: df.photos.filter((_, j) => j !== i) })}
+                            className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center shadow">✕</button>
+                        )}
+                      </div>
+                    ))}
+                    {!techLocked && (
+                      <label className="w-20 h-20 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-teal-400 text-gray-400 flex-shrink-0">
+                        <span className="text-2xl leading-none">+</span>
+                        <span className="text-xs mt-0.5">Photo</span>
+                        <input type="file" accept="image/*" capture="environment" className="hidden" multiple
+                          onChange={(e) => {
+                            const files = Array.from(e.target.files ?? []);
+                            Promise.all(files.map(f => fileToBase64(f))).then(urls => {
+                              setDf({ ...df, photos: [...df.photos, ...urls] });
+                            });
+                          }} />
+                      </label>
+                    )}
+                  </div>
+                </Field>
+                <div className="flex gap-2 mt-2">
+                  <Btn variant="secondary" className="flex-1" onClick={() => setScreen("floor")}>{techLocked ? "← Back" : "Cancel"}</Btn>
+                  {!techLocked && <Btn className="flex-1" onClick={saveDevice}>Save Device ✓</Btn>}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ══════════════ SCAN MARKUP MODAL ══════════════ */}
+          {scanModal && (
+            <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl">
+                <div className="text-3xl mb-2 text-center">✨</div>
+                <h3 className="text-lg font-bold text-center mb-1">Auto-Detected Devices</h3>
+                <p className="text-xs text-gray-500 text-center mb-4">
+                  Found by scanning icon colors in your markup PDF
+                </p>
+
+                {scanTotal > 0 ? (
+                  <div className="grid grid-cols-3 gap-2 mb-4">
+                    {[
+                      { label: "GW",  count: scanCount.GW,     color: "teal" },
+                      { label: "EN1", count: scanCount.EN1,    color: "orange" },
+                      { label: scanModal.sensorType, count: scanCount.SENSOR, color: "blue" },
+                    ].map(({ label, count, color }) => (
+                      <div key={label} className={`text-center rounded-xl p-3 border bg-${color}-50 border-${color}-200`}>
+                        <div className={`text-2xl font-bold text-${color}-700`}>{count}</div>
+                        <div className={`text-xs font-semibold text-${color}-600`}>{label}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mb-4 bg-gray-50 rounded-xl p-4 text-center text-sm text-gray-500">
+                    No devices detected in this PDF.
+                  </div>
+                )}
+
+                {scanTotal > 0 && (
+                  <>
+                    {scanHasGW ? (
+                      <div className="mb-4 bg-teal-50 border border-teal-200 rounded-xl p-3 text-xs text-teal-700 flex items-start gap-2">
+                        <span className="text-base mt-0.5">✓</span>
+                        <span>Gateway detected — area sensors set to <strong>L410</strong></span>
+                      </div>
+                    ) : scanCount.SENSOR > 0 ? (
+                      <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl p-3">
+                        <p className="text-xs font-semibold text-amber-800 mb-2">No gateway detected. Are these area sensors L410 or E106?</p>
+                        <div className="flex gap-2">
+                          {["L410", "E106"].map((type) => (
+                            <button key={type}
+                              onClick={() => setScanModal({ ...scanModal, sensorType: type })}
+                              className={`flex-1 py-2 text-sm font-bold rounded-xl border-2 transition-colors ${
+                                scanModal.sensorType === type
+                                  ? "border-teal-600 bg-teal-600 text-white"
+                                  : "border-gray-300 text-gray-600 hover:border-gray-400"
+                              }`}>
+                              {type}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </>
+                )}
+
+                <div className="flex gap-2">
+                  <Btn variant="secondary" className="flex-1" onClick={() => setScanModal(null)}>Cancel</Btn>
+                  {scanTotal > 0 && (
+                    <Btn className="flex-1" onClick={() => bulkPlaceDevices(scanModal.detected, scanHasGW ? "L410" : scanModal.sensorType)}>
+                      Place {scanTotal} Devices
+                    </Btn>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ══════════════ CONFIRM SUBMIT MODAL ══════════════ */}
+          {confirmReady && project && (
+            <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl">
+                <div className="text-3xl mb-3 text-center">📤</div>
+                <h3 className="text-lg font-bold text-center mb-2">Submit Survey?</h3>
+                <p className="text-sm text-gray-600 text-center mb-1">This will send your survey data and notify:</p>
+                <div className="bg-teal-50 border border-teal-200 rounded-xl p-3 mb-5 text-center">
+                  <p className="font-semibold text-teal-800 text-sm">{project.vsContact.name}</p>
+                  <p className="text-xs text-teal-600">{project.vsContact.email}</p>
+                </div>
+                <div className="flex gap-2">
+                  <Btn variant="secondary" className="flex-1" onClick={() => setConfirmReady(false)}>Not yet</Btn>
+                  <Btn variant="success" className="flex-1" onClick={submitSurvey}>Submit Survey ✓</Btn>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(SiteSurveyApp));
+  </script>
+</body>
+</html>
