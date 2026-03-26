@@ -1608,17 +1608,16 @@
                             {dev.photos.length > 0 && <p className="text-xs text-gray-400">📷 {dev.photos.length} photo{dev.photos.length !== 1 && "s"}</p>}
                           </div>
                           <div className="flex gap-1 flex-shrink-0">
-                            {!techLocked && (
-                              <button onClick={() => {
-                                setActiveDevId(dev.id);
-                                setDf({ ceilingHeight: dev.ceilingHeight, mountingMethod: dev.mountingMethod, deviceType: dev.deviceType, notes: dev.notes, photos: dev.photos });
-                                setScreen("device");
-                              }} className="text-[#493FD1] text-xs font-medium px-2.5 py-1.5 rounded-lg hover:bg-[#f0effc]">Edit</button>
-                            )}
+                            <button onClick={() => {
+                              setActiveDevId(dev.id);
+                              setDf({ ceilingHeight: dev.ceilingHeight, mountingMethod: dev.mountingMethod, deviceType: dev.deviceType, notes: dev.notes, photos: dev.photos });
+                              setScreen("device");
+                            }} className={`text-xs font-medium px-2.5 py-1.5 rounded-lg ${techLocked ? "text-gray-500 hover:bg-gray-100" : "text-[#493FD1] hover:bg-[#f0effc]"}`}>
+                              {techLocked ? "View" : "Edit"}
+                            </button>
                             {!techMode && (
                               <button onClick={() => deleteDevice(dev.id)} className="text-red-500 text-xs font-medium px-2.5 py-1.5 rounded-lg hover:bg-red-50">✕</button>
                             )}
-                            {techLocked && <span className="text-xs text-gray-400 px-2 py-1.5">🔒</span>}
                           </div>
                         </div>
                       ))}
