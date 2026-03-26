@@ -558,7 +558,9 @@
       const [showMyProjects, setShowMyProjects] = useState(false);
       const [showTechEntry, setShowTechEntry]   = useState(false);
       const [techCodeInput, setTechCodeInput]   = useState("");
+      const [techNameInput, setTechNameInput]   = useState("");
       const [techMode, setTechMode]             = useState(false);
+      const [techName, setTechName]             = useState("");
       const [np, setNp]                         = useState({ name: "", siteName: "", address: "", vsName: "", vsEmail: "", vsPreset: "" });
       const emptyDf                             = { ceilingHeight: "", mountingMethod: "", deviceType: "", notes: "", photos: [] };
       const [df, setDf]                         = useState(emptyDf);
@@ -753,6 +755,7 @@
           address: project.address,
           vsContact: project.vsContact,
           submittedAt: new Date().toISOString(),
+          techName: techName || "",
           summary: project.summary,
           floors: project.floors.map(floor => ({
             floorName: floor.name,
@@ -866,7 +869,13 @@
               </div>
 
               {/* Tech code entry */}
-              <p className="text-xs text-gray-500 font-medium mb-2">🔧 Field tech? Enter your project code</p>
+              <p className="text-xs text-gray-500 font-medium mb-2">🔧 Field tech? Enter your name and project code</p>
+              <input
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                placeholder="Your full name"
+                value={techNameInput}
+                onChange={(e) => setTechNameInput(e.target.value)}
+              />
               <div className="flex gap-2">
                 <input
                   className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono uppercase tracking-widest focus:outline-none focus:ring-2 focus:ring-teal-500"
@@ -880,6 +889,7 @@
                   const match = projects.find((p) => getAccessCode(p) === techCodeInput);
                   if (match) {
                     setTechMode(true);
+                    setTechName(techNameInput);
                     setActiveId(match.id);
                     setTab("floors");
                     setTechCodeInput("");
@@ -887,7 +897,7 @@
                   } else {
                     showToast("Code not found — check with your VS Contact", "error");
                   }
-                }} disabled={techCodeInput.length < 5}>
+                }} disabled={techCodeInput.length < 5 || !techNameInput.trim()}>
                   Go →
                 </Btn>
               </div>
