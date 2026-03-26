@@ -1277,18 +1277,10 @@
                         showToast("Uploading floor plan…", "info");
                         try {
                           if (f.type === 'application/pdf') {
-                            // Upload PDF to Firebase Storage so all devices can fetch it
-                            try {
-                              const url = await uploadFloorPlanToStorage(f, activeId, activeFloorId);
-                              setFloor(activeId, activeFloorId, {
-                                floorPlan: { isPdf: true, name: f.name, url, file: null, thumbnailUrl: null }
-                              });
-                            } catch (storageErr) {
-                              // Storage not yet enabled — display locally on this device only
-                              setFloor(activeId, activeFloorId, {
-                                floorPlan: { isPdf: true, name: f.name, url: null, file: null, thumbnailUrl: null }
-                              });
-                            }
+                            // Store locally — Firebase Storage upgrade pending
+                            setFloor(activeId, activeFloorId, {
+                              floorPlan: { isPdf: true, name: f.name, url: null, file: null, thumbnailUrl: null }
+                            });
                             setLocalPdfFile(f);
                           } else {
                             const dataUrl = await fileToBase64(f);
@@ -1505,17 +1497,10 @@
                                   showToast("Uploading floor plan…", "info");
                                   try {
                                     if (f.type === 'application/pdf') {
-                                      try {
-                                        const url = await uploadFloorPlanToStorage(f, activeId, activeFloorId);
-                                        setFloor(activeId, activeFloorId, {
-                                          floorPlan: { isPdf: true, name: f.name, url, file: null, thumbnailUrl: null }
-                                        });
-                                      } catch (storageErr) {
-                                        // Storage not yet enabled — display locally on this device only
-                                        setFloor(activeId, activeFloorId, {
-                                          floorPlan: { isPdf: true, name: f.name, url: null, file: null, thumbnailUrl: null }
-                                        });
-                                      }
+                                      // Store locally — Firebase Storage upgrade pending
+                                      setFloor(activeId, activeFloorId, {
+                                        floorPlan: { isPdf: true, name: f.name, url: null, file: null, thumbnailUrl: null }
+                                      });
                                       setLocalPdfFile(f);
                                     } else {
                                       const dataUrl = await fileToBase64(f);
