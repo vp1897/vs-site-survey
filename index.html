@@ -135,7 +135,8 @@
         const s = document.createElement("script");
         s.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
         s.onload = () => {
-          window.pdfjsLib.GlobalWorkerOptions.workerSrc = "";
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+            "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
           resolve(window.pdfjsLib);
         };
         s.onerror = () => { _pdfJsPromise = null; reject(new Error("Could not load PDF.js")); };
