@@ -362,6 +362,7 @@
 
         (async () => {
           try {
+            if (!file && !url) throw new Error("No floor plan source — PM may need to re-upload this floor plan.");
             const lib = await loadPdfJs();
             const arrayBuffer = await new Promise((resolve, reject) => {
               if (file) {
@@ -370,7 +371,9 @@
                 reader.onerror = () => reject(new Error("FileReader failed"));
                 reader.readAsArrayBuffer(file);
               } else {
-                fetch(url).then((r) => r.arrayBuffer()).then(resolve).catch(reject);
+                fetch(url, { mode: 'cors' })
+                  .then((r) => { if (!r.ok) throw new Error(`Fetch failed: ${r.status}`); return r.arrayBuffer(); })
+                  .then(resolve).catch(reject);
               }
             });
 
