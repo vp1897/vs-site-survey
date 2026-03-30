@@ -304,25 +304,46 @@
       </svg>
     );
 
-    // ─── FloorPdfThumb: loads thumbnail from IndexedDB for floors list ───────────
+    // ─── FloorPdfThumb: loads thumbnail from IndexedDB or Firebase Storage URL ────
     const _thumbCache = {};
-    const FloorPdfThumb = ({ floorId, name }) => {
-      const [thumb, setThumb] = React.useState(_thumbCache[floorId] || null);
+    const FloorPdfThumb = ({ floorId, name, url }) => {
+      const [thumb, setThumb]     = React.useState(_thumbCache[floorId] || null);
+      const [loading, setLoading] = React.useState(false);
       React.useEffect(() => {
         if (_thumbCache[floorId]) { setThumb(_thumbCache[floorId]); return; }
         let cancelled = false;
-        idbGetThumb(floorId).then(url => {
-          if (!cancelled && url) {
-            _thumbCache[floorId] = url;
-            setThumb(url);
-          }
+        idbGetThumb(floorId).then(async (cached) => {
+          if (cancelled) return;
+          if (cached) { _thumbCache[floorId] = cached; setThumb(cached); return; }
+          if (!url) return;
+          setLoading(true);
+          try {
+            const lib  = await loadPdfJs();
+            const resp = await fetch(url);
+            const buf  = await resp.arrayBuffer();
+            if (cancelled) return;
+            const pdf  = await lib.getDocument({ data: new Uint8Array(buf) }).promise;
+            const page = await pdf.getPage(1);
+            const vp   = page.getViewport({ scale: 1 });
+            const cv   = document.createElement('canvas');
+            cv.width = vp.width; cv.height = vp.height;
+            await page.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
+            if (cancelled) return;
+            const dataUrl = cv.toDataURL('image/jpeg', 0.82);
+            _thumbCache[floorId] = dataUrl;
+            setThumb(dataUrl);
+            idbSaveThumb(floorId, dataUrl).catch(() => {});
+          } catch(e) { /* silently fall back to filename */ }
+          finally { if (!cancelled) setLoading(false); }
         }).catch(() => {});
         return () => { cancelled = true; };
-      }, [floorId]);
+      }, [floorId, url]);
       if (thumb) return <img src={thumb} alt={name} style={{ width: "100%", display: "block" }} />;
       return (
-        <div className="bg-gray-100 flex items-center justify-center" style={{ height: 120 }}>
-          <span className="text-gray-500 text-sm">📄 {name ?? "PDF Floor Plan"}</span>
+        <div className="bg-gray-100 flex items-center justify-center gap-2" style={{ height: 120 }}>
+          {loading
+            ? <><div className="w-5 h-5 border-2 border-[#5a50d8] border-t-transparent rounded-full animate-spin flex-shrink-0" /><span className="text-xs text-gray-400">Loading preview…</span></>
+            : <span className="text-gray-500 text-sm">📄 {name ?? "PDF Floor Plan"}</span>}
         </div>
       );
     };
@@ -1204,7 +1225,7 @@
                               {floor.floorPlan.isDemo ? (
                                 <div style={{ pointerEvents: "none" }}><DemoFloorPlanSVG /></div>
                               ) : floor.floorPlan.isPdf ? (
-                                <FloorPdfThumb floorId={floor.id} name={floor.floorPlan.name} />
+                                <FloorPdfThumb floorId={floor.id} name={floor.floorPlan.name} url={floor.floorPlan.url} />
                               ) : (
                                 <img src={floor.floorPlan.url} alt={floor.name} style={{ width: "100%", display: "block" }} />
                               )}
