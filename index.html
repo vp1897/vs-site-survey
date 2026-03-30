@@ -523,8 +523,51 @@
 
     // ─── FloorPlanCanvas ───────────────────────────────────────────────────────────
     const FloorPlanCanvas = ({ floorPlan, pdfFile, placing, suppressBanner, onClickOverlay, onPdfRendered, onPdfDisplayUrl, containerRef: extRef, children }) => {
-      const innerRef = useRef(null);
+      const innerRef  = useRef(null);
+      const wrapRef   = useRef(null);
+      const zoomRef   = useRef(1);
+      const pinchRef  = useRef(null);
       const [zoom, setZoom] = useState(1);
+
+      // Keep zoomRef in sync so event listeners always see current value
+      useEffect(() => { zoomRef.current = zoom; }, [zoom]);
+
+      const clampZoom = (z) => Math.round(Math.min(4, Math.max(1, z)) * 10) / 10;
+
+      // Attach touch + wheel listeners with passive:false so we can preventDefault
+      useEffect(() => {
+        const el = wrapRef.current;
+        if (!el) return;
+
+        const getDist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+
+        const onTouchStart = (e) => {
+          if (e.touches.length === 2)
+            pinchRef.current = { startDist: getDist(e.touches), startZoom: zoomRef.current };
+        };
+        const onTouchMove = (e) => {
+          if (!pinchRef.current || e.touches.length !== 2) return;
+          e.preventDefault();
+          setZoom(clampZoom(pinchRef.current.startZoom * (getDist(e.touches) / pinchRef.current.startDist)));
+        };
+        const onTouchEnd = () => { pinchRef.current = null; };
+        const onWheel = (e) => {
+          if (!e.ctrlKey && !e.metaKey) return;
+          e.preventDefault();
+          setZoom(z => clampZoom(z * (1 - e.deltaY * 0.008)));
+        };
+
+        el.addEventListener('touchstart', onTouchStart, { passive: true });
+        el.addEventListener('touchmove',  onTouchMove,  { passive: false });
+        el.addEventListener('touchend',   onTouchEnd,   { passive: true });
+        el.addEventListener('wheel',      onWheel,      { passive: false });
+        return () => {
+          el.removeEventListener('touchstart', onTouchStart);
+          el.removeEventListener('touchmove',  onTouchMove);
+          el.removeEventListener('touchend',   onTouchEnd);
+          el.removeEventListener('wheel',      onWheel);
+        };
+      }, []);
 
       const attachInner = (el) => {
         innerRef.current = el;
@@ -543,7 +586,7 @@
       return (
         <div style={{ position: "relative", borderRadius: "0.75rem" }}
           className={`select-none border-2 transition-colors ${placing ? "border-[#5a50d8]" : "border-gray-200"}`}>
-          <div style={{
+          <div ref={wrapRef} style={{
               overflow: zoom > 1 ? "auto" : "hidden",
               height:   zoom > 1 ? 320 : undefined,
               borderRadius: "0.75rem",
@@ -571,11 +614,11 @@
           <div style={{ position: "absolute", bottom: 8, right: 8, zIndex: 30 }}
             className="flex items-center gap-0.5 bg-black/55 rounded-lg px-2 py-1 backdrop-blur-sm">
             <button
-              onClick={(e) => { e.stopPropagation(); setZoom((z) => Math.max(1, +(z - 0.5).toFixed(1))); }}
+              onClick={(e) => { e.stopPropagation(); setZoom((z) => clampZoom(z - 0.5)); }}
               className="text-white text-xs font-bold px-1.5 py-0.5 rounded">−</button>
             <span className="text-white text-xs font-semibold px-1 min-w-8 text-center">{zoom.toFixed(1)}×</span>
             <button
-              onClick={(e) => { e.stopPropagation(); setZoom((z) => Math.min(3, +(z + 0.5).toFixed(1))); }}
+              onClick={(e) => { e.stopPropagation(); setZoom((z) => clampZoom(z + 0.5)); }}
               className="text-white text-xs font-bold px-1.5 py-0.5 rounded">+</button>
           </div>
         </div>
@@ -1289,7 +1332,7 @@
                         <Input type="number" min="0" placeholder="0" value={project.summary.onsiteTechs} disabled={techLocked}
                           onChange={(e) => setProject(activeId, { summary: { ...project.summary, onsiteTechs: e.target.value } })} />
                       </Field>
-                      <Field label="# Virtual PMs">
+                      <Field label="# Virtual PMs (if applicable)">
                         <Input type="number" min="0" placeholder="0" value={project.summary.virtualPMs} disabled={techLocked}
                           onChange={(e) => setProject(activeId, { summary: { ...project.summary, virtualPMs: e.target.value } })} />
                       </Field>
