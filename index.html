@@ -1337,12 +1337,12 @@
                         showToast("Uploading floor plan…", "info");
                         try {
                           if (f.type === 'application/pdf') {
-                            // Store locally — Firebase Storage upgrade pending
-                            setFloor(activeId, activeFloorId, {
-                              floorPlan: { isPdf: true, name: f.name, url: null, file: null, thumbnailUrl: null }
-                            });
                             setLocalPdfFile(f);
                             idbSavePdf(activeFloorId, f).catch(() => {});
+                            const url = await uploadFloorPlanToStorage(f, activeId, activeFloorId);
+                            setFloor(activeId, activeFloorId, {
+                              floorPlan: { isPdf: true, name: f.name, url, file: null, thumbnailUrl: null }
+                            });
                           } else {
                             const dataUrl = await fileToBase64(f);
                             setFloor(activeId, activeFloorId, {
@@ -1554,12 +1554,12 @@
                                   showToast("Uploading floor plan…", "info");
                                   try {
                                     if (f.type === 'application/pdf') {
-                                      // Store locally — Firebase Storage upgrade pending
-                                      setFloor(activeId, activeFloorId, {
-                                        floorPlan: { isPdf: true, name: f.name, url: null, file: null, thumbnailUrl: null }
-                                      });
                                       setLocalPdfFile(f);
                                       idbSavePdf(activeFloorId, f).catch(() => {});
+                                      const url = await uploadFloorPlanToStorage(f, activeId, activeFloorId);
+                                      setFloor(activeId, activeFloorId, {
+                                        floorPlan: { isPdf: true, name: f.name, url, file: null, thumbnailUrl: null }
+                                      });
                                     } else {
                                       const dataUrl = await fileToBase64(f);
                                       setFloor(activeId, activeFloorId, {
