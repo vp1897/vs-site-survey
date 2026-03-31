@@ -70,12 +70,170 @@
     });
 
     // Upload a floor plan file to Firebase Storage and return its public download URL.
-    // PDFs are stored as-is so any device can fetch and render them via PDF.js.
-    // Images are converted to base64 (stored in Firestore directly — no Storage needed).
     const uploadFloorPlanToStorage = async (file, projectId, floorId) => {
       const path = `floorPlans/${projectId}/${floorId}/${Date.now()}_${file.name}`;
       const ref  = storage.ref(path);
       await ref.put(file);
+      return ref.getDownloadURL();
+    };
+
+    // Upload a device photo to Firebase Storage and return its download URL.
+    const uploadPhotoToStorage = async (file, projectId, floorId, deviceId) => {
+      const ext  = file.name.split('.').pop() || 'jpg';
+      const path = `photos/${projectId}/${floorId}/${deviceId}/${Date.now()}.${ext}`;
+      const ref  = storage.ref(path);
+      await ref.put(file, { contentType: file.type });
+      return ref.getDownloadURL();
+    };
+
+    // Lazy-load jsPDF + autoTable for report generation
+    let _jsPdfPromise = null;
+    const loadJsPdf = () => {
+      if (_jsPdfPromise) return _jsPdfPromise;
+      _jsPdfPromise = new Promise((res, rej) => {
+        if (window.jspdf) { res(window.jspdf.jsPDF); return; }
+        const s1 = document.createElement('script');
+        s1.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+        s1.onload = () => {
+          const s2 = document.createElement('script');
+          s2.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js';
+          s2.onload  = () => res(window.jspdf.jsPDF);
+          s2.onerror = () => { _jsPdfPromise = null; rej(new Error('autoTable load failed')); };
+          document.head.appendChild(s2);
+        };
+        s1.onerror = () => { _jsPdfPromise = null; rej(new Error('jsPDF load failed')); };
+        document.head.appendChild(s1);
+      });
+      return _jsPdfPromise;
+    };
+
+    // Generate a survey PDF and upload to Firebase Storage; returns download URL.
+    const generateAndUploadReport = async (project, projectId) => {
+      const JsPDF  = await loadJsPdf();
+      const doc    = new JsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const W = 210, M = 15;
+      const PURPLE = [73,63,209], DARK = [26,26,46], GRAY = [107,114,128],
+            LIGHT  = [249,250,251], BORDER = [229,231,235], PURPLIGHT = [196,192,245];
+      let y = 0;
+
+      // Header bar
+      doc.setFillColor(...PURPLE);
+      doc.rect(0, 0, W, 18, 'F');
+      doc.setFont('helvetica','bold'); doc.setFontSize(12); doc.setTextColor(255,255,255);
+      doc.text('VergeSense', M, 11);
+      doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(...PURPLIGHT);
+      doc.text('Site Survey Report', M, 16);
+      doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(255,255,255);
+      doc.text('SURVEY COMPLETE', W-M, 11, {align:'right'});
+      doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(...PURPLIGHT);
+      doc.text('Internal Use Only', W-M, 16, {align:'right'});
+      y = 26;
+
+      // Title
+      doc.setFont('helvetica','bold'); doc.setFontSize(16); doc.setTextColor(...PURPLE);
+      doc.text(project.name || 'Site Survey', M, y); y += 7;
+      doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(...GRAY);
+      const sub = [project.client, project.address].filter(Boolean).join(' · ');
+      if (sub) { doc.text(sub, M, y); y += 5; }
+      const dateStr = new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
+      doc.text('Submitted ' + dateStr, M, y); y += 8;
+      doc.setDrawColor(...BORDER); doc.setLineWidth(0.3); doc.line(M, y, W-M, y); y += 6;
+
+      // Project details
+      doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(...PURPLE);
+      doc.text('PROJECT DETAILS', M, y); y += 5;
+      const allDev = (project.floors||[]).flatMap(f => f.devices||[]);
+      const det = [
+        ['PROJECT NAME', project.name||'—', 'CLIENT / ACCOUNT', project.client||'—'],
+        ['ADDRESS', project.address||'—', 'SUBMITTED DATE', dateStr],
+        ['ONSITE TECHNICIAN(S)', String(project.summary?.onsiteTechs||0), 'VIRTUAL PMs (IF APPLICABLE)', String(project.summary?.virtualPMs||0)],
+        ['INSTALLATION DURATION', project.summary?.installationDuration||'—', 'TOTAL DEVICES', String(allDev.length)],
+      ];
+      det.forEach(([l1,v1,l2,v2]) => {
+        doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(...GRAY);
+        doc.text(l1, M, y); doc.text(l2, 110, y); y += 4;
+        doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(...DARK);
+        doc.text(String(v1), M, y); doc.text(String(v2), 110, y); y += 6;
+      });
+      y += 2; doc.setDrawColor(...BORDER); doc.line(M, y, W-M, y); y += 5;
+
+      // Totals bar
+      doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(...PURPLE);
+      doc.text('DEVICE TOTALS', M, y); y += 5;
+      const typeCounts = {};
+      allDev.forEach(d => { typeCounts[d.deviceType||'Other'] = (typeCounts[d.deviceType||'Other']||0)+1; });
+      const boxes = [['Total', allDev.length], ...Object.entries(typeCounts)];
+      const bw = (W-2*M) / boxes.length;
+      doc.setFillColor(...PURPLE); doc.roundedRect(M, y, W-2*M, 18, 2, 2, 'F');
+      boxes.forEach(([lbl, cnt], i) => {
+        const bx = M + bw*(i+0.5);
+        doc.setFont('helvetica','bold'); doc.setFontSize(13); doc.setTextColor(255,255,255);
+        doc.text(String(cnt), bx, y+10, {align:'center'});
+        doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(...PURPLIGHT);
+        doc.text(lbl, bx, y+15, {align:'center'});
+      });
+      y += 22; doc.setDrawColor(...BORDER); doc.line(M, y, W-M, y); y += 5;
+
+      // Floor breakdown
+      doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(...PURPLE);
+      doc.text('FLOOR-BY-FLOOR DEVICE DETAILS', M, y); y += 5;
+
+      for (const floor of (project.floors||[])) {
+        if (!floor.devices || floor.devices.length === 0) continue;
+        if (y > 250) { doc.addPage(); y = 20; }
+        doc.setFillColor(234,233,250);
+        doc.rect(M, y, W-2*M, 9, 'F');
+        doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(...DARK);
+        doc.text(floor.name||'Floor', M+3, y+6.5);
+        doc.setFontSize(9); doc.setTextColor(...PURPLE);
+        doc.text(floor.devices.length + ' devices', W-M-3, y+6.5, {align:'right'});
+        y += 9;
+        doc.autoTable({
+          startY: y, margin: {left:M, right:M},
+          head: [['#','Type','Mount','Height','Notes']],
+          body: floor.devices.map(d=>[d.number||'',d.deviceType||'—',d.mountingMethod||'—',d.ceilingHeight||'—',d.notes||'']),
+          headStyles: {fillColor:[243,244,246], textColor:GRAY, fontStyle:'bold', fontSize:7.5},
+          bodyStyles: {fontSize:8, textColor:DARK},
+          columnStyles: {0:{cellWidth:8},1:{cellWidth:16,fontStyle:'bold',textColor:PURPLE},2:{cellWidth:30},3:{cellWidth:18},4:{cellWidth:'auto'}},
+          alternateRowStyles: {fillColor:LIGHT},
+        });
+        y = doc.lastAutoTable.finalY + 8;
+      }
+
+      // Submission block
+      if (y > 250) { doc.addPage(); y = 20; }
+      doc.setDrawColor(...BORDER); doc.line(M, y, W-M, y); y += 5;
+      doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(...PURPLE);
+      doc.text('SUBMISSION DETAILS', M, y); y += 5;
+      doc.setFillColor(...LIGHT); doc.rect(M, y, W-2*M, 22, 'F');
+      doc.setDrawColor(...BORDER); doc.rect(M, y, W-2*M, 22, 'S');
+      [[`${project.summary?.onsiteTechs||0} technician(s)`, 'SUBMITTED BY', M+5],
+       [project.vsContact||'—', 'VS CONTACT', 80],
+       [`VS-${Date.now().toString(36).toUpperCase().slice(-6)}`, 'SURVEY ID', 145]
+      ].forEach(([val, lbl, x]) => {
+        doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(...GRAY);
+        doc.text(lbl, x, y+7);
+        doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(...DARK);
+        doc.text(val, x, y+14);
+      });
+
+      // Page footers
+      const pages = doc.internal.getNumberOfPages();
+      for (let i = 1; i <= pages; i++) {
+        doc.setPage(i);
+        const ph = doc.internal.pageSize.getHeight();
+        doc.setFillColor(...LIGHT); doc.rect(0, ph-12, W, 12, 'F');
+        doc.setDrawColor(...BORDER); doc.setLineWidth(0.3); doc.line(0, ph-12, W, ph-12);
+        doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(...GRAY);
+        doc.text('Generated by VS Site Surveys  ·  vergesense.com', M, ph-5);
+        doc.text(`Page ${i} of ${pages}`, W-M, ph-5, {align:'right'});
+      }
+
+      // Upload to Firebase Storage
+      const blob = doc.output('blob');
+      const path = `reports/${projectId}/${Date.now()}_survey.pdf`;
+      const ref  = storage.ref(path);
+      await ref.put(blob, { contentType: 'application/pdf' });
       return ref.getDownloadURL();
     };
 
@@ -644,8 +802,10 @@
               key={d.id}
               onClick={() => onSelectDevice(d.id === dev.id ? null : d.id)}
               style={{
-                position: "absolute", left: `${dev.x}%`, top: `${dev.y}%`,
-                transform: "translate(-50%,-50%) scale(3)",
+                position: "absolute",
+                left: `${3 * d.x - 2 * dev.x}%`,
+                top: `${3 * d.y - 2 * dev.y}%`,
+                transform: "translate(-50%,-50%)",
                 transformOrigin: "center",
               }}
               className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white transition-transform ${
@@ -920,6 +1080,16 @@
         try {
           showToast("Submitting survey...", "info");
 
+          // Generate the survey PDF report and upload to Firebase Storage
+          let reportPdfUrl = null;
+          try {
+            showToast("Generating PDF report...", "info");
+            reportPdfUrl = await generateAndUploadReport(project, activeId);
+            payload.reportPdfUrl = reportPdfUrl;
+          } catch (pdfErr) {
+            console.warn("PDF generation failed (continuing submission):", pdfErr);
+          }
+
           if (N8N_WEBHOOK_URL && !N8N_WEBHOOK_URL.startsWith('REPLACE')) {
             await fetch(N8N_WEBHOOK_URL, {
               method: 'POST',
@@ -931,6 +1101,7 @@
           await db.collection('projects').doc(activeId).update({
             status: 'submitted',
             submittedAt: new Date().toISOString(),
+            reportPdfUrl: reportPdfUrl || null,
           });
 
           setConfirmReady(false);
@@ -1021,6 +1192,7 @@
                 <Btn onClick={() => {
                   const match = projects.find((p) => getAccessCode(p) === techCodeInput);
                   if (match) {
+                    if (!auth.currentUser) firebase.auth().signInAnonymously().catch(() => {});
                     setTechMode(true);
                     setTechName(techNameInput);
                     setActiveId(match.id);
