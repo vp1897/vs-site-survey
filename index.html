@@ -929,9 +929,13 @@
 
       const setFloor = (pId, fId, updates) => {
         const proj = projects.find(p => p.id === pId);
-        if (!proj) return;
+        if (!proj) { console.error('setFloor: project not found', pId); return; }
         const updatedFloors = proj.floors.map(f => f.id === fId ? { ...f, ...updates } : f);
-        db.collection('projects').doc(pId).update({ floors: updatedFloors });
+        db.collection('projects').doc(pId).update({ floors: updatedFloors })
+          .catch(err => {
+            console.error('setFloor write failed:', err.code, err.message);
+            showToast('❌ Save failed: ' + err.message, 'error');
+          });
       };
 
       const createProject = () => {
