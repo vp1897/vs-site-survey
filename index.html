@@ -863,12 +863,6 @@
         const unsub = auth.onAuthStateChanged((user) => {
           setCurrentUser(user);
           setAuthReady(true);
-          // Always ensure there's an auth token — sign in anonymously if no user.
-          // This guarantees Firestore writes work for field techs the moment
-          // they enter their code, without waiting for signInAnonymously() to resolve.
-          if (!user) {
-            firebase.auth().signInAnonymously().catch(() => {});
-          }
         });
         return unsub;
       }, []);
@@ -1199,9 +1193,14 @@
                   onChange={(e) => setTechCodeInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
                   onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.nextSibling?.click(); }}
                 />
-                <Btn onClick={() => {
+                <Btn onClick={async () => {
                   const match = projects.find((p) => getAccessCode(p) === techCodeInput);
                   if (match) {
+                    // Ensure anonymous auth is complete before proceeding
+                    // so Firestore writes work immediately when tech saves devices
+                    if (!auth.currentUser) {
+                      try { await firebase.auth().signInAnonymously(); } catch(e) {}
+                    }
                     setTechMode(true);
                     setTechName(techNameInput);
                     setActiveId(match.id);
