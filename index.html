@@ -1358,7 +1358,7 @@
           {screen === "project" && project && (
             <div className="max-w-lg mx-auto" style={{ minHeight: "100vh" }}>
               <div className="bg-white border-b px-4 py-3 sticky top-0 z-10">
-                <button onClick={() => setScreen("list")} className="text-[#493FD1] text-sm font-medium">← Projects</button>
+                {!techMode && <button onClick={() => setScreen("list")} className="text-[#493FD1] text-sm font-medium">← Projects</button>}
                 <div className="flex items-start justify-between gap-2 mt-0.5">
                   <div className="min-w-0">
                     <h2 className="font-bold truncate">{project.name}</h2>
@@ -1935,11 +1935,23 @@
                         <span className="text-2xl leading-none">+</span>
                         <span className="text-xs mt-0.5">Photo</span>
                         <input type="file" accept="image/*" className="hidden" multiple
-                          onChange={(e) => {
+                          onChange={async (e) => {
                             const files = Array.from(e.target.files ?? []);
-                            Promise.all(files.map(f => fileToBase64(f))).then(urls => {
-                              setDf({ ...df, photos: [...df.photos, ...urls] });
-                            });
+                            if (!files.length) return;
+                            showToast("Uploading photos...", "info");
+                            try {
+                              const urls = await Promise.all(files.map(async (file) => {
+                                const path = `photos/${activeId}/${activeFloorId}/${activeDevId}/${Date.now()}_${file.name}`;
+                                const ref = storage.ref(path);
+                                await ref.put(file, { contentType: file.type });
+                                return ref.getDownloadURL();
+                              }));
+                              setDf(prev => ({ ...prev, photos: [...prev.photos, ...urls] }));
+                              showToast(`${urls.length} photo${urls.length > 1 ? 's' : ''} uploaded ✓`);
+                            } catch (err) {
+                              console.error('Photo upload failed:', err);
+                              showToast('Photo upload failed: ' + err.message, 'error');
+                            }
                           }} />
                       </label>
                     )}
