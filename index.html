@@ -889,7 +889,7 @@
       const allDevices  = project?.floors.flatMap((f) => f.devices) ?? [];
       const totalDev    = allDevices.length;
       const doneDev     = allDevices.filter((d) => d.complete).length;
-      const techLocked  = techMode && project?.status !== "in_progress";
+      const techLocked  = techMode && project?.status === "submitted";
 
       // Google Sign-In
       const signInWithGoogle = () => {
