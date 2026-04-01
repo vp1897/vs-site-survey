@@ -341,9 +341,9 @@
         return mx > 85 && mx < 252 && (mx - mn) > 45 && !isGW(r,g,b) && !isEN1(r,g,b);
       };
 
-      const minX = Math.floor(w * 0.035);
-      const maxX = Math.floor(w * 0.965);
-      const minY = Math.floor(h * 0.030);
+      const minX = Math.floor(w * 0.06);
+      const maxX = Math.floor(w * 0.94);
+      const minY = Math.floor(h * 0.05);
 
       const cells = {};
       for (let y = minY; y < maxY; y += 2) {
@@ -386,17 +386,18 @@
         if (used.has(i)) continue;
         const a = hits[i];
         const mr = MERGE_R[a.type];
-        let sx = a.x, sy = a.y, n = 1;
+        // Use count-weighted centroid so the pin lands on the densest (core) part of the icon
+        let sx = a.x * a.count, sy = a.y * a.count, totalW = a.count;
         for (let j = i + 1; j < hits.length; j++) {
           if (used.has(j)) continue;
           const b = hits[j];
           if (b.type === a.type && Math.abs(b.x-a.x) < mr && Math.abs(b.y-a.y) < mr) {
-            sx += b.x; sy += b.y; n++;
+            sx += b.x * b.count; sy += b.y * b.count; totalW += b.count;
             used.add(j);
           }
         }
         used.add(i);
-        merged.push({ type: a.type, x: sx / n, y: sy / n });
+        merged.push({ type: a.type, x: sx / totalW, y: sy / totalW });
       }
 
       const en1Hits = merged.filter(d => d.type === "EN1");
@@ -408,15 +409,23 @@
         );
       });
 
+      // Remove GW detections too close to any edge — these are nearly always false positives
+      // from the floor plan border frame, title block, or side legend strip.
+      const GW_BORDER = 10; // % margin from each edge
+      const edgePruned = filtered.filter(d => {
+        if (d.type !== "GW") return true;
+        return d.x > GW_BORDER && d.x < (100 - GW_BORDER) && d.y > GW_BORDER;
+      });
+
       // Sanity check: GW count should never exceed sensor count in a real installation.
       // If it does, the GW detections are almost certainly false positives from background elements.
-      const gwCount     = filtered.filter(d => d.type === "GW").length;
-      const sensorCount = filtered.filter(d => d.type === "SENSOR").length;
+      const gwCount     = edgePruned.filter(d => d.type === "GW").length;
+      const sensorCount = edgePruned.filter(d => d.type === "SENSOR").length;
       if (gwCount > sensorCount) {
-        return filtered.filter(d => d.type !== "GW");
+        return edgePruned.filter(d => d.type !== "GW");
       }
 
-      return filtered;
+      return edgePruned;
     };
 
     // ─── Demo floor plan as inline SVG ─────────
