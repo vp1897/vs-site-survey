@@ -1137,6 +1137,7 @@
             payload.reportPdfUrl = reportPdfUrl;
           } catch (pdfErr) {
             console.warn("PDF generation failed (continuing submission):", pdfErr);
+            showToast(`⚠️ PDF failed: ${pdfErr?.message || pdfErr}`, "error");
           }
 
           if (N8N_WEBHOOK_URL && !N8N_WEBHOOK_URL.startsWith('REPLACE')) {
