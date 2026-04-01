@@ -516,7 +516,7 @@
     };
 
     // ─── PdfCanvas: renders a PDF page to <canvas>, then displays it as <img> ─────
-    const PdfCanvas = ({ url, file, onRendered, onDisplayUrl }) => {
+    const PdfCanvas = ({ url, file, onRendered, onDisplayUrl, onLegendData }) => {
       const [imgUrl, setImgUrl]   = useState(null);
       const [loading, setLoading] = useState(true);
       const [error, setError]     = useState(null);
@@ -554,6 +554,25 @@
             await page.render({ canvasContext: hiCanvas.getContext("2d"), viewport: vpHi }).promise;
             if (cancelled) return;
             if (onRendered) onRendered(hiCanvas);
+
+            // Extract legend text to find GW count — more reliable than pixel detection
+            if (onLegendData) {
+              try {
+                const textContent = await page.getTextContent();
+                const texts = textContent.items.map(i => i.str.trim()).filter(Boolean);
+                let legendGWCount = null;
+                for (let i = 0; i < texts.length; i++) {
+                  if (/gateway/i.test(texts[i])) {
+                    for (let j = i + 1; j < Math.min(i + 5, texts.length); j++) {
+                      const n = parseInt(texts[j], 10);
+                      if (!isNaN(n) && n >= 0) { legendGWCount = n; break; }
+                    }
+                    if (legendGWCount !== null) break;
+                  }
+                }
+                onLegendData({ gwCount: legendGWCount });
+              } catch(e) { onLegendData({ gwCount: null }); }
+            }
 
             const vpLo = page.getViewport({ scale: 1.5 });
             const loCanvas = document.createElement("canvas");
@@ -689,7 +708,7 @@
     };
 
     // ─── FloorPlanCanvas ───────────────────────────────────────────────────────────
-    const FloorPlanCanvas = ({ floorPlan, pdfFile, placing, suppressBanner, onClickOverlay, onPdfRendered, onPdfDisplayUrl, containerRef: extRef, children }) => {
+    const FloorPlanCanvas = ({ floorPlan, pdfFile, placing, suppressBanner, onClickOverlay, onPdfRendered, onPdfDisplayUrl, onLegendData, containerRef: extRef, children }) => {
       const innerRef  = useRef(null);
       const wrapRef   = useRef(null);
       const zoomRef   = useRef(1);
@@ -764,7 +783,7 @@
               {floorPlan?.isDemo ? (
                 <DemoFloorPlanSVG />
               ) : floorPlan?.isPdf ? (
-                <PdfCanvas url={floorPlan.url} file={pdfFile || floorPlan.file} onRendered={onPdfRendered} onDisplayUrl={onPdfDisplayUrl} />
+                <PdfCanvas url={floorPlan.url} file={pdfFile || floorPlan.file} onRendered={onPdfRendered} onDisplayUrl={onPdfDisplayUrl} onLegendData={onLegendData} />
               ) : floorPlan?.url ? (
                 <img src={floorPlan.url} alt="floor plan" style={{ width: "100%", display: "block" }} draggable={false} />
               ) : null}
@@ -846,6 +865,7 @@
       const [editingFloorId, setEditingFloorId] = useState(null);
       const [editFloorName, setEditFloorName]   = useState("");
       const [pdfCanvas, setPdfCanvas]           = useState(null);
+      const [legendData, setLegendData]         = useState(null);
       const [pdfDisplayUrl, setPdfDisplayUrl]   = useState(null);
       const [scanModal, setScanModal]           = useState(null);
       const [previewDevId, setPreviewDevId]     = useState(null);
@@ -1128,7 +1148,16 @@
       const runScan = () => {
         if (!pdfCanvas) return;
         const detected = detectDevicesOnCanvas(pdfCanvas);
-        setScanModal({ detected, sensorType: "L410" });
+        // Use legend GW count (from PDF text) as the authoritative source.
+        // legendData.gwCount = number if legend was found, null if not parseable.
+        const legendGW = legendData?.gwCount ?? null;
+        const hasGW = legendGW !== null ? legendGW > 0 : detected.some(d => d.type === "GW");
+        const sensorType = hasGW ? "L410" : "E106";
+        // If legend says 0 GWs, strip any falsely-detected GW pixels from results
+        const finalDetected = (legendGW === 0)
+          ? detected.filter(d => d.type !== "GW")
+          : detected;
+        setScanModal({ detected: finalDetected, sensorType, legendGWCount: legendGW });
       };
 
       const kitCounts = (proj) => {
@@ -1139,11 +1168,19 @@
         return c;
       };
 
-      const scanHasGW     = scanModal?.detected.some((d) => d.type === "GW") ?? false;
-      const scanCount     = {
-        GW:     scanModal?.detected.filter((d) => d.type === "GW").length     ?? 0,
-        EN1:    scanModal?.detected.filter((d) => d.type === "EN1").length     ?? 0,
-        SENSOR: scanModal?.detected.filter((d) => d.type === "SENSOR").length  ?? 0,
+      const scanHasGW = scanModal
+        ? (scanModal.legendGWCount !== null && scanModal.legendGWCount !== undefined
+            ? scanModal.legendGWCount > 0
+            : scanModal.detected.some((d) => d.type === "GW"))
+        : false;
+      const scanCount = {
+        GW:     scanModal
+          ? (scanModal.legendGWCount !== null && scanModal.legendGWCount !== undefined
+              ? scanModal.legendGWCount
+              : scanModal.detected.filter((d) => d.type === "GW").length)
+          : 0,
+        EN1:    scanModal?.detected.filter((d) => d.type === "EN1").length    ?? 0,
+        SENSOR: scanModal?.detected.filter((d) => d.type === "SENSOR").length ?? 0,
       };
       const scanTotal     = (scanModal?.detected.length) ?? 0;
 
@@ -1456,7 +1493,7 @@
                           )}
                         </div>
                         <button className="w-full text-left block"
-                          onClick={() => { const fid = floor.id; setActiveFloorId(fid); setPdfCanvas(null); setPdfDisplayUrl(null); setLocalPdfFile(null); setPlacing(false); setPreviewDevId(null); setScreen("floor"); if (floor.floorPlan && floor.floorPlan.isPdf && !floor.floorPlan.url) { idbGetPdf(fid).then(file => { if (file) setLocalPdfFile(file); }).catch(() => {}); } }}>
+                          onClick={() => { const fid = floor.id; setActiveFloorId(fid); setPdfCanvas(null); setPdfDisplayUrl(null); setLocalPdfFile(null); setLegendData(null); setPlacing(false); setPreviewDevId(null); setScreen("floor"); if (floor.floorPlan && floor.floorPlan.isPdf && !floor.floorPlan.url) { idbGetPdf(fid).then(file => { if (file) setLocalPdfFile(file); }).catch(() => {}); } }}>
                           {floor.floorPlan ? (
                             <div className="relative overflow-hidden bg-gray-50" style={{ maxHeight: 140 }}>
                               {floor.floorPlan.isDemo ? (
@@ -1591,7 +1628,7 @@
                       onChange={async (e) => {
                         const f = e.target.files?.[0];
                         if (!f) return;
-                        setPdfCanvas(null); setLocalPdfFile(null);
+                        setPdfCanvas(null); setLocalPdfFile(null); setLegendData(null);
                         showToast("Uploading floor plan…", "info");
                         try {
                           if (f.type === 'application/pdf') {
@@ -1636,6 +1673,8 @@
                       suppressBanner={editMapMode}
                       onClickOverlay={editMapMode ? quickPlaceDevice : placeDevice}
                       onPdfRendered={(canvas) => setPdfCanvas(canvas)}
+                      onLegendData={(data) => setLegendData(data)}
+
                       onPdfDisplayUrl={(url) => {
                         setPdfDisplayUrl(url);
                         idbSaveThumb(activeFloorId, url).catch(() => {});
@@ -1808,7 +1847,7 @@
                                 onChange={async (e) => {
                                   const f = e.target.files?.[0];
                                   if (!f) return;
-                                  setPdfCanvas(null); setLocalPdfFile(null);
+                                  setPdfCanvas(null); setLocalPdfFile(null); setLegendData(null);
                                   showToast("Uploading floor plan…", "info");
                                   try {
                                     if (f.type === 'application/pdf') {
