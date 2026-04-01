@@ -208,7 +208,7 @@
       doc.setFillColor(...LIGHT); doc.rect(M, y, W-2*M, 22, 'F');
       doc.setDrawColor(...BORDER); doc.rect(M, y, W-2*M, 22, 'S');
       [[`${project.summary?.onsiteTechs||0} technician(s)`, 'SUBMITTED BY', M+5],
-       [project.vsContact||'—', 'VS CONTACT', 80],
+       [project.vsContact?.name || project.vsContact || '—', 'VS CONTACT', 80],
        [`VS-${Date.now().toString(36).toUpperCase().slice(-6)}`, 'SURVEY ID', 145]
       ].forEach(([val, lbl, x]) => {
         doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(...GRAY);
@@ -1091,9 +1091,7 @@
             reportPdfUrl = await generateAndUploadReport(project, activeId);
             payload.reportPdfUrl = reportPdfUrl;
           } catch (pdfErr) {
-            console.error("PDF generation failed:", pdfErr);
-            showToast("⚠️ PDF error: " + (pdfErr?.message || String(pdfErr)), "error");
-            await new Promise(r => setTimeout(r, 3000)); // pause so error is readable
+            console.warn("PDF generation failed (continuing submission):", pdfErr);
           }
 
           if (N8N_WEBHOOK_URL && !N8N_WEBHOOK_URL.startsWith('REPLACE')) {
