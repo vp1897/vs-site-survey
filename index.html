@@ -329,10 +329,9 @@
       const maxY = Math.floor(h * 0.82);
       const gs   = Math.max(10, Math.floor(w / 140));
 
-      // GW detection removed — GW icons vary too much across floor plan styles
-      // and auto-placement of the few GWs per floor is not reliable.
-      // VS Contacts place GW pins manually after auto-scanning sensors/EN1s.
-      const isGW  = () => false;
+      const isGW  = (r,g,b) =>
+        r>=78&&r<=115&&g>=102&&g<=135&&b>=96&&b<=136 &&
+        (Math.max(r,g,b)-Math.min(r,g,b)) < 48;
       const isEN1 = (r,g,b) =>
         r>=200&&r<=248&&g>=90&&g<=140&&b>=86&&b<=132 && (r-b)>80;
       const isWifiIcon = (r,g,b) => r < 100 && g < 50 && b > 220;
@@ -1147,10 +1146,11 @@
 
       const runScan = () => {
         if (!pdfCanvas) return;
-        const detected = detectDevicesOnCanvas(pdfCanvas).filter(d => d.type !== "GW");
-        // Always ask the VS Contact to confirm L410 vs E106 — GW detection is
-        // unreliable across floor plan styles so we never auto-decide.
-        setScanModal({ detected, sensorType: "L410", legendGWCount: null });
+        const detected = detectDevicesOnCanvas(pdfCanvas);
+        const hasGW = detected.some(d => d.type === "GW");
+        // Pre-select L410 if GWs were detected, E106 otherwise.
+        // VS Contact can always override with the toggle.
+        setScanModal({ detected, sensorType: hasGW ? "L410" : "E106", legendGWCount: null });
       };
 
       const kitCounts = (proj) => {
@@ -2019,9 +2019,10 @@
                 </p>
 
                 {scanTotal > 0 ? (
-                  <div className="grid grid-cols-2 gap-2 mb-4">
+                  <div className="grid grid-cols-3 gap-2 mb-4">
                     {[
-                      { label: "EN1",  count: scanCount.EN1,    color: "orange" },
+                      { label: "GW",  count: scanCount.GW,     color: "teal" },
+                      { label: "EN1", count: scanCount.EN1,    color: "orange" },
                       { label: scanModal.sensorType, count: scanCount.SENSOR, color: "blue" },
                     ].map(({ label, count, color }) => (
                       <div key={label} className={`text-center rounded-xl p-3 border bg-${color}-50 border-${color}-200`}>
@@ -2036,9 +2037,11 @@
                   </div>
                 )}
 
-                {scanCount.SENSOR > 0 && (
+                {scanTotal > 0 && (
                   <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl p-3">
-                    <p className="text-xs font-semibold text-amber-800 mb-2">Are these area sensors L410 or E106?</p>
+                    <p className="text-xs font-semibold text-amber-800 mb-2">
+                      {scanHasGW ? "Gateway detected — confirm sensor type:" : "No gateway detected — confirm sensor type:"}
+                    </p>
                     <div className="flex gap-2">
                       {["L410", "E106"].map((type) => (
                         <button key={type}
@@ -2054,11 +2057,6 @@
                     </div>
                   </div>
                 )}
-
-                <div className="mb-3 bg-[#f0effc] border border-[#c4c0f4] rounded-xl p-3 text-xs text-[#3a31c4] flex items-start gap-2">
-                  <span className="mt-0.5">💡</span>
-                  <span>Place <strong>gateway pins manually</strong> on the map after scanning — tap any spot on the floor plan to add a GW device.</span>
-                </div>
 
                 <div className="flex gap-2">
                   <Btn variant="secondary" className="flex-1" onClick={() => setScanModal(null)}>Cancel</Btn>
