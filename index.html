@@ -331,7 +331,8 @@
 
       const isGW  = (r,g,b) =>
         r>=78&&r<=115&&g>=102&&g<=135&&b>=96&&b<=136 &&
-        (Math.max(r,g,b)-Math.min(r,g,b)) < 48;
+        (Math.max(r,g,b)-Math.min(r,g,b)) < 48 &&
+        g > r + 5 && g > b + 5;  // green must be the dominant channel
       const isEN1 = (r,g,b) =>
         r>=200&&r<=248&&g>=90&&g<=140&&b>=86&&b<=132 && (r-b)>80;
       const isWifiIcon = (r,g,b) => r < 100 && g < 50 && b > 220;
@@ -366,7 +367,7 @@
         }
       }
 
-      const MIN_COUNT = { GW: 5, EN1: 10, SENSOR: 30 };
+      const MIN_COUNT = { GW: 20, EN1: 10, SENSOR: 30 };
 
       const hits = [];
       for (const [key, count] of Object.entries(cells)) {
@@ -407,6 +408,14 @@
           Math.abs(d.x - e.x) < EN1_EXCLUSION_R && Math.abs(d.y - e.y) < EN1_EXCLUSION_R
         );
       });
+
+      // Sanity check: GW count should never exceed sensor count in a real installation.
+      // If it does, the GW detections are almost certainly false positives from background elements.
+      const gwCount     = filtered.filter(d => d.type === "GW").length;
+      const sensorCount = filtered.filter(d => d.type === "SENSOR").length;
+      if (gwCount > sensorCount) {
+        return filtered.filter(d => d.type !== "GW");
+      }
 
       return filtered;
     };
