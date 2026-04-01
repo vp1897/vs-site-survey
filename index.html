@@ -1154,7 +1154,9 @@
       }
 
       // ── Sign-in screen (shown when not signed in AND not in tech mode) ────────────
-      if (!currentUser && !techMode) {
+      // Also show sign-in if user is only anonymously authed but not actively in tech mode
+      // (handles PWA reopen after closing — anonymous session persists but techMode resets)
+      if ((!currentUser || currentUser.isAnonymous) && !techMode) {
         return (
           <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
             <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-8 w-full max-w-sm text-center">
