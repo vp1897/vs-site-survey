@@ -1091,7 +1091,9 @@
             reportPdfUrl = await generateAndUploadReport(project, activeId);
             payload.reportPdfUrl = reportPdfUrl;
           } catch (pdfErr) {
-            console.warn("PDF generation failed (continuing submission):", pdfErr);
+            console.error("PDF generation failed:", pdfErr);
+            showToast("⚠️ PDF error: " + (pdfErr?.message || String(pdfErr)), "error");
+            await new Promise(r => setTimeout(r, 3000)); // pause so error is readable
           }
 
           if (N8N_WEBHOOK_URL && !N8N_WEBHOOK_URL.startsWith('REPLACE')) {
