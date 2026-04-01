@@ -830,26 +830,34 @@
       };
       return (
         <div ref={containerRef} className="relative bg-gray-50 rounded-t-xl overflow-hidden" style={{ height: 280 }}>
-          <div style={{ transform: "scale(3)", transformOrigin: `${dev.x}% ${dev.y}%`, height: "100%" }}>
+          {/*
+            No fixed height on the inner div — let it size to the image's intrinsic height so that
+            transformOrigin percentages (dev.x%, dev.y%) correctly map to the image content.
+            Pins live INSIDE the scaled div so they transform with the image automatically;
+            scale(0.333) counter-scales each pin back to its normal visual size.
+          */}
+          <div style={{ position: "relative", transform: "scale(3)", transformOrigin: `${dev.x}% ${dev.y}%` }}>
             {renderBg()}
+            {allDevices.map((d) => (
+              <button
+                key={d.id}
+                onClick={() => onSelectDevice(d.id === dev.id ? null : d.id)}
+                style={{
+                  position: "absolute",
+                  left: `${d.x}%`,
+                  top: `${d.y}%`,
+                  transform: `translate(-50%,-50%) scale(0.333)`,
+                  transformOrigin: "center",
+                  zIndex: d.id === dev.id ? 20 : 10,
+                }}>
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-md border-2 transition-transform ${
+                  d.id === dev.id ? "border-[#a9a4ef] scale-110 ring-2 ring-[#7069df]" : "border-white"
+                } ${d.complete ? "bg-emerald-500" : "bg-blue-600"}`}>
+                  {d.number}
+                </div>
+              </button>
+            ))}
           </div>
-          {allDevices.map((d) => (
-            <button
-              key={d.id}
-              onClick={() => onSelectDevice(d.id === dev.id ? null : d.id)}
-              style={{
-                position: "absolute",
-                left: `${3 * d.x - 2 * dev.x}%`,
-                top: `${3 * d.y - 2 * dev.y}%`,
-                transform: "translate(-50%,-50%)",
-                transformOrigin: "center",
-              }}
-              className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white transition-transform ${
-                d.id === dev.id ? "scale-110 ring-2 ring-[#7069df] ring-offset-2" : "hover:scale-110"
-              } ${d.complete ? "bg-emerald-500 border-2 border-white" : "bg-blue-600 border-2 border-white"}`}>
-              {d.number}
-            </button>
-          ))}
           <div className="absolute inset-0 flex items-center justify-center text-white font-semibold pointer-events-none"
             style={{ textShadow: "0 1px 3px rgba(0,0,0,0.7)", pointerEvents: "none" }}>
             3× · tap pin to switch
