@@ -208,7 +208,7 @@
       doc.setFillColor(...LIGHT); doc.rect(M, y, W-2*M, 22, 'F');
       doc.setDrawColor(...BORDER); doc.rect(M, y, W-2*M, 22, 'S');
       [[`${project.summary?.onsiteTechs||0} technician(s)`, 'SUBMITTED BY', M+5],
-       [project.vsContact?.name || project.vsContact || '—', 'VS CONTACT', 80],
+       [project.vsContact||'—', 'VS CONTACT', 80],
        [`VS-${Date.now().toString(36).toUpperCase().slice(-6)}`, 'SURVEY ID', 145]
       ].forEach(([val, lbl, x]) => {
         doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(...GRAY);
@@ -341,9 +341,9 @@
         return mx > 85 && mx < 252 && (mx - mn) > 45 && !isGW(r,g,b) && !isEN1(r,g,b);
       };
 
-      const minX = Math.floor(w * 0.06);
-      const maxX = Math.floor(w * 0.94);
-      const minY = Math.floor(h * 0.05);
+      const minX = Math.floor(w * 0.035);
+      const maxX = Math.floor(w * 0.965);
+      const minY = Math.floor(h * 0.030);
 
       const cells = {};
       for (let y = minY; y < maxY; y += 2) {
@@ -386,18 +386,17 @@
         if (used.has(i)) continue;
         const a = hits[i];
         const mr = MERGE_R[a.type];
-        // Use count-weighted centroid so the pin lands on the densest (core) part of the icon
-        let sx = a.x * a.count, sy = a.y * a.count, totalW = a.count;
+        let sx = a.x, sy = a.y, n = 1;
         for (let j = i + 1; j < hits.length; j++) {
           if (used.has(j)) continue;
           const b = hits[j];
           if (b.type === a.type && Math.abs(b.x-a.x) < mr && Math.abs(b.y-a.y) < mr) {
-            sx += b.x * b.count; sy += b.y * b.count; totalW += b.count;
+            sx += b.x; sy += b.y; n++;
             used.add(j);
           }
         }
         used.add(i);
-        merged.push({ type: a.type, x: sx / totalW, y: sy / totalW });
+        merged.push({ type: a.type, x: sx / n, y: sy / n });
       }
 
       const en1Hits = merged.filter(d => d.type === "EN1");
@@ -409,23 +408,7 @@
         );
       });
 
-      // Remove GW detections too close to any edge — these are nearly always false positives
-      // from the floor plan border frame, title block, or side legend strip.
-      const GW_BORDER = 10; // % margin from each edge
-      const edgePruned = filtered.filter(d => {
-        if (d.type !== "GW") return true;
-        return d.x > GW_BORDER && d.x < (100 - GW_BORDER) && d.y > GW_BORDER;
-      });
-
-      // Sanity check: GW count should never exceed sensor count in a real installation.
-      // If it does, the GW detections are almost certainly false positives from background elements.
-      const gwCount     = edgePruned.filter(d => d.type === "GW").length;
-      const sensorCount = edgePruned.filter(d => d.type === "SENSOR").length;
-      if (gwCount > sensorCount) {
-        return edgePruned.filter(d => d.type !== "GW");
-      }
-
-      return edgePruned;
+      return filtered;
     };
 
     // ─── Demo floor plan as inline SVG ─────────
@@ -524,7 +507,7 @@
     };
 
     // ─── PdfCanvas: renders a PDF page to <canvas>, then displays it as <img> ─────
-    const PdfCanvas = ({ url, file, onRendered, onDisplayUrl, onLegendData }) => {
+    const PdfCanvas = ({ url, file, onRendered, onDisplayUrl }) => {
       const [imgUrl, setImgUrl]   = useState(null);
       const [loading, setLoading] = useState(true);
       const [error, setError]     = useState(null);
@@ -562,25 +545,6 @@
             await page.render({ canvasContext: hiCanvas.getContext("2d"), viewport: vpHi }).promise;
             if (cancelled) return;
             if (onRendered) onRendered(hiCanvas);
-
-            // Extract legend text to find GW count — more reliable than pixel detection
-            if (onLegendData) {
-              try {
-                const textContent = await page.getTextContent();
-                const texts = textContent.items.map(i => i.str.trim()).filter(Boolean);
-                let legendGWCount = null;
-                for (let i = 0; i < texts.length; i++) {
-                  if (/gateway/i.test(texts[i])) {
-                    for (let j = i + 1; j < Math.min(i + 5, texts.length); j++) {
-                      const n = parseInt(texts[j], 10);
-                      if (!isNaN(n) && n >= 0) { legendGWCount = n; break; }
-                    }
-                    if (legendGWCount !== null) break;
-                  }
-                }
-                onLegendData({ gwCount: legendGWCount });
-              } catch(e) { onLegendData({ gwCount: null }); }
-            }
 
             const vpLo = page.getViewport({ scale: 1.5 });
             const loCanvas = document.createElement("canvas");
@@ -716,7 +680,7 @@
     };
 
     // ─── FloorPlanCanvas ───────────────────────────────────────────────────────────
-    const FloorPlanCanvas = ({ floorPlan, pdfFile, placing, suppressBanner, onClickOverlay, onPdfRendered, onPdfDisplayUrl, onLegendData, containerRef: extRef, children }) => {
+    const FloorPlanCanvas = ({ floorPlan, pdfFile, placing, suppressBanner, onClickOverlay, onPdfRendered, onPdfDisplayUrl, containerRef: extRef, children }) => {
       const innerRef  = useRef(null);
       const wrapRef   = useRef(null);
       const zoomRef   = useRef(1);
@@ -791,7 +755,7 @@
               {floorPlan?.isDemo ? (
                 <DemoFloorPlanSVG />
               ) : floorPlan?.isPdf ? (
-                <PdfCanvas url={floorPlan.url} file={pdfFile || floorPlan.file} onRendered={onPdfRendered} onDisplayUrl={onPdfDisplayUrl} onLegendData={onLegendData} />
+                <PdfCanvas url={floorPlan.url} file={pdfFile || floorPlan.file} onRendered={onPdfRendered} onDisplayUrl={onPdfDisplayUrl} />
               ) : floorPlan?.url ? (
                 <img src={floorPlan.url} alt="floor plan" style={{ width: "100%", display: "block" }} draggable={false} />
               ) : null}
@@ -830,34 +794,26 @@
       };
       return (
         <div ref={containerRef} className="relative bg-gray-50 rounded-t-xl overflow-hidden" style={{ height: 280 }}>
-          {/*
-            No fixed height on the inner div — let it size to the image's intrinsic height so that
-            transformOrigin percentages (dev.x%, dev.y%) correctly map to the image content.
-            Pins live INSIDE the scaled div so they transform with the image automatically;
-            scale(0.333) counter-scales each pin back to its normal visual size.
-          */}
-          <div style={{ position: "relative", transform: "scale(3)", transformOrigin: `${dev.x}% ${dev.y}%` }}>
+          <div style={{ transform: "scale(3)", transformOrigin: `${dev.x}% ${dev.y}%`, height: "100%" }}>
             {renderBg()}
-            {allDevices.map((d) => (
-              <button
-                key={d.id}
-                onClick={() => onSelectDevice(d.id === dev.id ? null : d.id)}
-                style={{
-                  position: "absolute",
-                  left: `${d.x}%`,
-                  top: `${d.y}%`,
-                  transform: `translate(-50%,-50%) scale(0.333)`,
-                  transformOrigin: "center",
-                  zIndex: d.id === dev.id ? 20 : 10,
-                }}>
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-md border-2 transition-transform ${
-                  d.id === dev.id ? "border-[#a9a4ef] scale-110 ring-2 ring-[#7069df]" : "border-white"
-                } ${d.complete ? "bg-emerald-500" : "bg-blue-600"}`}>
-                  {d.number}
-                </div>
-              </button>
-            ))}
           </div>
+          {allDevices.map((d) => (
+            <button
+              key={d.id}
+              onClick={() => onSelectDevice(d.id === dev.id ? null : d.id)}
+              style={{
+                position: "absolute",
+                left: `${3 * d.x - 2 * dev.x}%`,
+                top: `${3 * d.y - 2 * dev.y}%`,
+                transform: "translate(-50%,-50%)",
+                transformOrigin: "center",
+              }}
+              className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white transition-transform ${
+                d.id === dev.id ? "scale-110 ring-2 ring-[#7069df] ring-offset-2" : "hover:scale-110"
+              } ${d.complete ? "bg-emerald-500 border-2 border-white" : "bg-blue-600 border-2 border-white"}`}>
+              {d.number}
+            </button>
+          ))}
           <div className="absolute inset-0 flex items-center justify-center text-white font-semibold pointer-events-none"
             style={{ textShadow: "0 1px 3px rgba(0,0,0,0.7)", pointerEvents: "none" }}>
             3× · tap pin to switch
@@ -881,7 +837,6 @@
       const [editingFloorId, setEditingFloorId] = useState(null);
       const [editFloorName, setEditFloorName]   = useState("");
       const [pdfCanvas, setPdfCanvas]           = useState(null);
-      const [legendData, setLegendData]         = useState(null);
       const [pdfDisplayUrl, setPdfDisplayUrl]   = useState(null);
       const [scanModal, setScanModal]           = useState(null);
       const [previewDevId, setPreviewDevId]     = useState(null);
@@ -893,14 +848,15 @@
       const [quickPlacePos, setQuickPlacePos]   = useState(null);
       const [currentUser, setCurrentUser]       = useState(null);
       const [authReady, setAuthReady]           = useState(false);
-      const [showMyProjects, setShowMyProjects] = useState(false);
+      const [showMyProjects, setShowMyProjects] = useState(true);
+      const [searchQuery, setSearchQuery]         = useState("");
       const [showTechEntry, setShowTechEntry]   = useState(false);
       const [techCodeInput, setTechCodeInput]   = useState("");
       const [techNameInput, setTechNameInput]   = useState("");
       const [techMode, setTechMode]             = useState(false);
       const [techName, setTechName]             = useState("");
       const [np, setNp]                         = useState({ name: "", siteName: "", address: "", vsName: "", vsEmail: "", vsPreset: "" });
-      const emptyDf                             = { ceilingHeight: "", mountingMethod: "", deviceType: "", notes: "", photos: [] };
+      const emptyDf                             = { ceilingHeight: "", mountingMethod: "", deviceType: "", notes: "", photos: [], en1_doorFrameHeight: "", en1_doorWidth: "", en1_exitSigns: "", en1_sprinklers: "", en1_hangingFixtures: "", en1_doorDirection: "" };
       const [df, setDf]                         = useState(emptyDf);
 
       // Firebase auth state listener
@@ -950,9 +906,16 @@
       };
 
       // Show all projects by default; "My Projects" toggle filters to signed-in PM's own
-      const visibleProjects = (showMyProjects && currentUser)
+      const filteredByOwner = (showMyProjects && currentUser)
         ? projects.filter((p) => p.vsContact?.email === currentUser.email)
         : projects;
+      const visibleProjects = searchQuery.trim()
+        ? filteredByOwner.filter((p) =>
+            (p.name || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+            (p.siteName || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+            (p.address || "").toLowerCase().includes(searchQuery.toLowerCase())
+          )
+        : filteredByOwner;
 
       const showToast = (msg, type = "success") => {
         setToast({ msg, type });
@@ -1042,8 +1005,14 @@
       };
 
       const saveDevice = () => {
+        const isEN1 = df.deviceType === 'EN1';
+        const isComplete = isEN1
+          ? !!df.en1_doorFrameHeight && !!df.ceilingHeight && !!df.en1_doorWidth && !!df.mountingMethod &&
+            !!df.en1_exitSigns && !!df.en1_sprinklers && !!df.en1_hangingFixtures && !!df.en1_doorDirection &&
+            df.photos.length > 0
+          : !!df.mountingMethod && !!df.ceilingHeight && !!df.deviceType;
         const updated = activeFloor.devices.map((d) =>
-          d.id === activeDevId ? { ...d, ...df, complete: !!df.mountingMethod && !!df.ceilingHeight && !!df.deviceType } : d,
+          d.id === activeDevId ? { ...d, ...df, complete: isComplete } : d,
         );
         setFloor(activeId, activeFloorId, { devices: updated });
         setScreen("floor");
@@ -1102,13 +1071,21 @@
           floors: project.floors.map(floor => ({
             floorName: floor.name,
             devices: floor.devices.map(dev => ({
-              number: dev.number,
+            number: dev.number,
               deviceType: dev.deviceType,
               ceilingHeight: dev.ceilingHeight,
               mountingMethod: dev.mountingMethod,
               notes: dev.notes,
               complete: dev.complete,
               photos: dev.photos || [],
+              ...(dev.deviceType === 'EN1' ? {
+                en1_doorFrameHeight: dev.en1_doorFrameHeight || "",
+                en1_doorWidth: dev.en1_doorWidth || "",
+                en1_exitSigns: dev.en1_exitSigns || "",
+                en1_sprinklers: dev.en1_sprinklers || "",
+                en1_hangingFixtures: dev.en1_hangingFixtures || "",
+                en1_doorDirection: dev.en1_doorDirection || "",
+              } : {}),
             })),
             deviceCounts: {
               areaSensors: floor.devices.filter(d => d.deviceType === 'L410' || d.deviceType === 'E106').length,
@@ -1137,7 +1114,6 @@
             payload.reportPdfUrl = reportPdfUrl;
           } catch (pdfErr) {
             console.warn("PDF generation failed (continuing submission):", pdfErr);
-            showToast(`⚠️ PDF failed: ${pdfErr?.message || pdfErr}`, "error");
           }
 
           if (N8N_WEBHOOK_URL && !N8N_WEBHOOK_URL.startsWith('REPLACE')) {
@@ -1165,10 +1141,7 @@
       const runScan = () => {
         if (!pdfCanvas) return;
         const detected = detectDevicesOnCanvas(pdfCanvas);
-        const hasGW = detected.some(d => d.type === "GW");
-        // Pre-select L410 if GWs were detected, E106 otherwise.
-        // VS Contact can always override with the toggle.
-        setScanModal({ detected, sensorType: hasGW ? "L410" : "E106", legendGWCount: null });
+        setScanModal({ detected, sensorType: "L410" });
       };
 
       const kitCounts = (proj) => {
@@ -1179,19 +1152,11 @@
         return c;
       };
 
-      const scanHasGW = scanModal
-        ? (scanModal.legendGWCount !== null && scanModal.legendGWCount !== undefined
-            ? scanModal.legendGWCount > 0
-            : scanModal.detected.some((d) => d.type === "GW"))
-        : false;
-      const scanCount = {
-        GW:     scanModal
-          ? (scanModal.legendGWCount !== null && scanModal.legendGWCount !== undefined
-              ? scanModal.legendGWCount
-              : scanModal.detected.filter((d) => d.type === "GW").length)
-          : 0,
-        EN1:    scanModal?.detected.filter((d) => d.type === "EN1").length    ?? 0,
-        SENSOR: scanModal?.detected.filter((d) => d.type === "SENSOR").length ?? 0,
+      const scanHasGW     = scanModal?.detected.some((d) => d.type === "GW") ?? false;
+      const scanCount     = {
+        GW:     scanModal?.detected.filter((d) => d.type === "GW").length     ?? 0,
+        EN1:    scanModal?.detected.filter((d) => d.type === "EN1").length     ?? 0,
+        SENSOR: scanModal?.detected.filter((d) => d.type === "SENSOR").length  ?? 0,
       };
       const scanTotal     = (scanModal?.detected.length) ?? 0;
 
@@ -1211,9 +1176,7 @@
       }
 
       // ── Sign-in screen (shown when not signed in AND not in tech mode) ────────────
-      // Also show sign-in if user is only anonymously authed but not actively in tech mode
-      // (handles PWA reopen after closing — anonymous session persists but techMode resets)
-      if ((!currentUser || currentUser.isAnonymous) && !techMode) {
+      if (!currentUser && !techMode) {
         return (
           <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
             <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-8 w-full max-w-sm text-center">
@@ -1324,6 +1287,15 @@
                 </div>
               </div>
 
+                <div className="relative mt-2">
+                  <input
+                    className="w-full border border-gray-200 rounded-lg pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#5a50d8] bg-gray-50"
+                    placeholder="Search projects…"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">🔍</span>
+                </div>
               <div className="p-4 space-y-3">
                 {visibleProjects.length === 0 && (
                   <div className="text-center py-16 text-gray-400">
@@ -1504,7 +1476,7 @@
                           )}
                         </div>
                         <button className="w-full text-left block"
-                          onClick={() => { const fid = floor.id; setActiveFloorId(fid); setPdfCanvas(null); setPdfDisplayUrl(null); setLocalPdfFile(null); setLegendData(null); setPlacing(false); setPreviewDevId(null); setScreen("floor"); if (floor.floorPlan && floor.floorPlan.isPdf && !floor.floorPlan.url) { idbGetPdf(fid).then(file => { if (file) setLocalPdfFile(file); }).catch(() => {}); } }}>
+                          onClick={() => { const fid = floor.id; setActiveFloorId(fid); setPdfCanvas(null); setPdfDisplayUrl(null); setLocalPdfFile(null); setPlacing(false); setPreviewDevId(null); setScreen("floor"); if (floor.floorPlan && floor.floorPlan.isPdf && !floor.floorPlan.url) { idbGetPdf(fid).then(file => { if (file) setLocalPdfFile(file); }).catch(() => {}); } }}>
                           {floor.floorPlan ? (
                             <div className="relative overflow-hidden bg-gray-50" style={{ maxHeight: 140 }}>
                               {floor.floorPlan.isDemo ? (
@@ -1639,7 +1611,7 @@
                       onChange={async (e) => {
                         const f = e.target.files?.[0];
                         if (!f) return;
-                        setPdfCanvas(null); setLocalPdfFile(null); setLegendData(null);
+                        setPdfCanvas(null); setLocalPdfFile(null);
                         showToast("Uploading floor plan…", "info");
                         try {
                           if (f.type === 'application/pdf') {
@@ -1684,8 +1656,6 @@
                       suppressBanner={editMapMode}
                       onClickOverlay={editMapMode ? quickPlaceDevice : placeDevice}
                       onPdfRendered={(canvas) => setPdfCanvas(canvas)}
-                      onLegendData={(data) => setLegendData(data)}
-
                       onPdfDisplayUrl={(url) => {
                         setPdfDisplayUrl(url);
                         idbSaveThumb(activeFloorId, url).catch(() => {});
@@ -1821,7 +1791,7 @@
                               <Btn variant="secondary" size="sm" onClick={() => setPreviewDevId(null)}>Close</Btn>
                               <Btn size="sm" variant={techLocked ? "secondary" : "primary"} onClick={() => {
                                 setActiveDevId(pDev.id);
-                                setDf({ ceilingHeight: pDev.ceilingHeight, mountingMethod: pDev.mountingMethod, deviceType: pDev.deviceType, notes: pDev.notes, photos: pDev.photos });
+                                setDf({ ceilingHeight: pDev.ceilingHeight, mountingMethod: pDev.mountingMethod, deviceType: pDev.deviceType, notes: pDev.notes, photos: pDev.photos, en1_doorFrameHeight: pDev.en1_doorFrameHeight || "", en1_doorWidth: pDev.en1_doorWidth || "", en1_exitSigns: pDev.en1_exitSigns || "", en1_sprinklers: pDev.en1_sprinklers || "", en1_hangingFixtures: pDev.en1_hangingFixtures || "", en1_doorDirection: pDev.en1_doorDirection || "" });
                                 setPreviewDevId(null);
                                 setScreen("device");
                               }}>{techLocked ? "View →" : "Edit →"}</Btn>
@@ -1858,7 +1828,7 @@
                                 onChange={async (e) => {
                                   const f = e.target.files?.[0];
                                   if (!f) return;
-                                  setPdfCanvas(null); setLocalPdfFile(null); setLegendData(null);
+                                  setPdfCanvas(null); setLocalPdfFile(null);
                                   showToast("Uploading floor plan…", "info");
                                   try {
                                     if (f.type === 'application/pdf') {
@@ -1918,7 +1888,7 @@
                           <div className="flex gap-1 flex-shrink-0">
                             <button onClick={() => {
                               setActiveDevId(dev.id);
-                              setDf({ ceilingHeight: dev.ceilingHeight, mountingMethod: dev.mountingMethod, deviceType: dev.deviceType, notes: dev.notes, photos: dev.photos });
+                              setDf({ ceilingHeight: dev.ceilingHeight, mountingMethod: dev.mountingMethod, deviceType: dev.deviceType, notes: dev.notes, photos: dev.photos, en1_doorFrameHeight: dev.en1_doorFrameHeight || "", en1_doorWidth: dev.en1_doorWidth || "", en1_exitSigns: dev.en1_exitSigns || "", en1_sprinklers: dev.en1_sprinklers || "", en1_hangingFixtures: dev.en1_hangingFixtures || "", en1_doorDirection: dev.en1_doorDirection || "" });
                               setScreen("device");
                             }} className={`text-xs font-medium px-2.5 py-1.5 rounded-lg ${techLocked ? "text-gray-500 hover:bg-gray-100" : "text-[#493FD1] hover:bg-[#f0effc]"}`}>
                               {techLocked ? "View" : "Edit"}
@@ -1961,63 +1931,173 @@
                     </div>
                   </div>
                 )}
-                <Field label="Ceiling Height">
-                  <Input placeholder='e.g. 9ft, 10ft 6in' value={df.ceilingHeight} onChange={(e) => setDf({ ...df, ceilingHeight: e.target.value })} disabled={techLocked} />
-                </Field>
-                <Field label="Mounting Method">
-                  <Sel value={df.mountingMethod} onChange={(e) => setDf({ ...df, mountingMethod: e.target.value })} disabled={techLocked}>
-                    <option value="">Select mounting method…</option>
-                    {MOUNTING.map((m) => <option key={m} value={m}>{m}</option>)}
-                  </Sel>
-                  <p className="text-xs text-gray-400 mt-1">T1 = magnet · T2 = screws · T3 = adhesive, angle mounts · T4 = drop rods</p>
-                </Field>
                 <Field label="Device Type">
                   <Sel value={df.deviceType} onChange={(e) => setDf({ ...df, deviceType: e.target.value })} disabled={techLocked}>
                     <option value="">Select device type…</option>
                     {DEVICE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                   </Sel>
                 </Field>
-                <Field label="Notes">
-                  <TA placeholder="Anything specific about this device location…" value={df.notes} onChange={(e) => setDf({ ...df, notes: e.target.value })} disabled={techLocked} />
-                </Field>
-                <Field label="Photos" hint={techLocked ? undefined : "Tap + to take a photo or choose from gallery"}>
-                  <div className="flex flex-wrap gap-2">
-                    {df.photos.map((photo, i) => (
-                      <div key={i} className="relative w-20 h-20 flex-shrink-0">
-                        <img src={photo} alt={`photo ${i + 1}`} className="w-full h-full object-cover rounded-lg border border-gray-200" />
+
+                {df.deviceType === 'EN1' ? (
+                  <>
+                    <Field label="Door Frame Height">
+                      <Input placeholder='e.g. 7ft, 80in' value={df.en1_doorFrameHeight || ""} onChange={(e) => setDf({ ...df, en1_doorFrameHeight: e.target.value })} disabled={techLocked} />
+                    </Field>
+                    <Field label="Ceiling Height">
+                      <Input placeholder='e.g. 9ft, 10ft 6in' value={df.ceilingHeight} onChange={(e) => setDf({ ...df, ceilingHeight: e.target.value })} disabled={techLocked} />
+                    </Field>
+                    <Field label="Door / Entry Width">
+                      <Input placeholder='e.g. 36in, 3ft' value={df.en1_doorWidth || ""} onChange={(e) => setDf({ ...df, en1_doorWidth: e.target.value })} disabled={techLocked} />
+                    </Field>
+                    <Field label="Mounting Tier">
+                      <Sel value={df.mountingMethod} onChange={(e) => setDf({ ...df, mountingMethod: e.target.value })} disabled={techLocked}>
+                        <option value="">Select mounting tier…</option>
+                        {MOUNTING.map((m) => <option key={m} value={m}>{m}</option>)}
+                      </Sel>
+                      <p className="text-xs text-gray-400 mt-1">T1 = magnet · T2 = screws · T3 = adhesive, angle mounts · T4 = drop rods</p>
+                    </Field>
+                    <div className="grid grid-cols-3 gap-3">
+                      <Field label="Exit Signs">
+                        <Sel value={df.en1_exitSigns || ""} onChange={(e) => setDf({ ...df, en1_exitSigns: e.target.value })} disabled={techLocked}>
+                          <option value="">—</option>
+                          <option value="yes">Yes</option>
+                          <option value="no">No</option>
+                        </Sel>
+                      </Field>
+                      <Field label="Sprinklers">
+                        <Sel value={df.en1_sprinklers || ""} onChange={(e) => setDf({ ...df, en1_sprinklers: e.target.value })} disabled={techLocked}>
+                          <option value="">—</option>
+                          <option value="yes">Yes</option>
+                          <option value="no">No</option>
+                        </Sel>
+                      </Field>
+                      <Field label="Hanging Fixtures">
+                        <Sel value={df.en1_hangingFixtures || ""} onChange={(e) => setDf({ ...df, en1_hangingFixtures: e.target.value })} disabled={techLocked}>
+                          <option value="">—</option>
+                          <option value="yes">Yes</option>
+                          <option value="no">No</option>
+                        </Sel>
+                      </Field>
+                    </div>
+                    <Field label="Door Opens">
+                      <Sel value={df.en1_doorDirection || ""} onChange={(e) => setDf({ ...df, en1_doorDirection: e.target.value })} disabled={techLocked}>
+                        <option value="">Select direction…</option>
+                        <option value="inward">Inward</option>
+                        <option value="outward">Outward</option>
+                        <option value="both">Both directions</option>
+                        <option value="sliding">Sliding</option>
+                      </Sel>
+                    </Field>
+                    <Field label="Notes">
+                      <TA placeholder="Anything specific about this EN1 location…" value={df.notes} onChange={(e) => setDf({ ...df, notes: e.target.value })} disabled={techLocked} />
+                    </Field>
+                    <Field label="Photos" hint={techLocked ? undefined : "All 8 angles required — see list below"}>
+                      <div className="mb-3 bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-800">
+                        <p className="font-semibold mb-1.5">📷 Required photo angles for EN1:</p>
+                        <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
+                          <span>• Close-up view</span>
+                          <span>• Mid-range (front)</span>
+                          <span>• Mid-range (interior)</span>
+                          <span>• Wide angle (doorway)</span>
+                          <span>• Side view</span>
+                          <span>• Wide angle (hallway)</span>
+                          <span>• Interior view</span>
+                          <span>• Exterior view</span>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {df.photos.map((photo, i) => (
+                          <div key={i} className="relative w-20 h-20 flex-shrink-0">
+                            <img src={photo} alt={`photo ${i + 1}`} className="w-full h-full object-cover rounded-lg border border-gray-200" />
+                            {!techLocked && (
+                              <button onClick={() => setDf({ ...df, photos: df.photos.filter((_, j) => j !== i) })}
+                                className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center shadow">✕</button>
+                            )}
+                          </div>
+                        ))}
                         {!techLocked && (
-                          <button onClick={() => setDf({ ...df, photos: df.photos.filter((_, j) => j !== i) })}
-                            className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center shadow">✕</button>
+                          <label className="w-20 h-20 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-[#7069df] text-gray-400 flex-shrink-0">
+                            <span className="text-2xl leading-none">+</span>
+                            <span className="text-xs mt-0.5">Photo</span>
+                            <input type="file" accept="image/*" className="hidden" multiple
+                              onChange={async (e) => {
+                                const files = Array.from(e.target.files ?? []);
+                                if (!files.length) return;
+                                showToast("Uploading photos...", "info");
+                                try {
+                                  const urls = await Promise.all(files.map(async (file) => {
+                                    const path = `photos/${activeId}/${activeFloorId}/${activeDevId}/${Date.now()}_${file.name}`;
+                                    const ref = storage.ref(path);
+                                    await ref.put(file, { contentType: file.type });
+                                    return ref.getDownloadURL();
+                                  }));
+                                  setDf(prev => ({ ...prev, photos: [...prev.photos, ...urls] }));
+                                  showToast(`${urls.length} photo${urls.length > 1 ? 's' : ''} uploaded ✓`);
+                                } catch (err) {
+                                  console.error('Photo upload failed:', err);
+                                  showToast('Photo upload failed: ' + err.message, 'error');
+                                }
+                              }} />
+                          </label>
                         )}
                       </div>
-                    ))}
-                    {!techLocked && (
-                      <label className="w-20 h-20 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-[#7069df] text-gray-400 flex-shrink-0">
-                        <span className="text-2xl leading-none">+</span>
-                        <span className="text-xs mt-0.5">Photo</span>
-                        <input type="file" accept="image/*" className="hidden" multiple
-                          onChange={async (e) => {
-                            const files = Array.from(e.target.files ?? []);
-                            if (!files.length) return;
-                            showToast("Uploading photos...", "info");
-                            try {
-                              const urls = await Promise.all(files.map(async (file) => {
-                                const path = `photos/${activeId}/${activeFloorId}/${activeDevId}/${Date.now()}_${file.name}`;
-                                const ref = storage.ref(path);
-                                await ref.put(file, { contentType: file.type });
-                                return ref.getDownloadURL();
-                              }));
-                              setDf(prev => ({ ...prev, photos: [...prev.photos, ...urls] }));
-                              showToast(`${urls.length} photo${urls.length > 1 ? 's' : ''} uploaded ✓`);
-                            } catch (err) {
-                              console.error('Photo upload failed:', err);
-                              showToast('Photo upload failed: ' + err.message, 'error');
-                            }
-                          }} />
-                      </label>
-                    )}
-                  </div>
-                </Field>
+                    </Field>
+                  </>
+                ) : (
+                  <>
+                    <Field label="Ceiling Height">
+                      <Input placeholder='e.g. 9ft, 10ft 6in' value={df.ceilingHeight} onChange={(e) => setDf({ ...df, ceilingHeight: e.target.value })} disabled={techLocked} />
+                    </Field>
+                    <Field label="Mounting Method">
+                      <Sel value={df.mountingMethod} onChange={(e) => setDf({ ...df, mountingMethod: e.target.value })} disabled={techLocked}>
+                        <option value="">Select mounting method…</option>
+                        {MOUNTING.map((m) => <option key={m} value={m}>{m}</option>)}
+                      </Sel>
+                      <p className="text-xs text-gray-400 mt-1">T1 = magnet · T2 = screws · T3 = adhesive, angle mounts · T4 = drop rods</p>
+                    </Field>
+                    <Field label="Notes">
+                      <TA placeholder="Anything specific about this device location…" value={df.notes} onChange={(e) => setDf({ ...df, notes: e.target.value })} disabled={techLocked} />
+                    </Field>
+                    <Field label="Photos" hint={techLocked ? undefined : "Tap + to take a photo or choose from gallery"}>
+                      <div className="flex flex-wrap gap-2">
+                        {df.photos.map((photo, i) => (
+                          <div key={i} className="relative w-20 h-20 flex-shrink-0">
+                            <img src={photo} alt={`photo ${i + 1}`} className="w-full h-full object-cover rounded-lg border border-gray-200" />
+                            {!techLocked && (
+                              <button onClick={() => setDf({ ...df, photos: df.photos.filter((_, j) => j !== i) })}
+                                className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center shadow">✕</button>
+                            )}
+                          </div>
+                        ))}
+                        {!techLocked && (
+                          <label className="w-20 h-20 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-[#7069df] text-gray-400 flex-shrink-0">
+                            <span className="text-2xl leading-none">+</span>
+                            <span className="text-xs mt-0.5">Photo</span>
+                            <input type="file" accept="image/*" className="hidden" multiple
+                              onChange={async (e) => {
+                                const files = Array.from(e.target.files ?? []);
+                                if (!files.length) return;
+                                showToast("Uploading photos...", "info");
+                                try {
+                                  const urls = await Promise.all(files.map(async (file) => {
+                                    const path = `photos/${activeId}/${activeFloorId}/${activeDevId}/${Date.now()}_${file.name}`;
+                                    const ref = storage.ref(path);
+                                    await ref.put(file, { contentType: file.type });
+                                    return ref.getDownloadURL();
+                                  }));
+                                  setDf(prev => ({ ...prev, photos: [...prev.photos, ...urls] }));
+                                  showToast(`${urls.length} photo${urls.length > 1 ? 's' : ''} uploaded ✓`);
+                                } catch (err) {
+                                  console.error('Photo upload failed:', err);
+                                  showToast('Photo upload failed: ' + err.message, 'error');
+                                }
+                              }} />
+                          </label>
+                        )}
+                      </div>
+                    </Field>
+                  </>
+                )}
                 <div className="flex gap-2 mt-2">
                   <Btn variant="secondary" className="flex-1" onClick={() => setScreen("floor")}>{techLocked ? "← Back" : "Cancel"}</Btn>
                   {!techLocked && <Btn className="flex-1" onClick={saveDevice}>Save Device ✓</Btn>}
@@ -2056,30 +2136,37 @@
                 )}
 
                 {scanTotal > 0 && (
-                  <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl p-3">
-                    <p className="text-xs font-semibold text-amber-800 mb-2">
-                      {scanHasGW ? "Gateway detected — confirm sensor type:" : "No gateway detected — confirm sensor type:"}
-                    </p>
-                    <div className="flex gap-2">
-                      {["L410", "E106"].map((type) => (
-                        <button key={type}
-                          onClick={() => setScanModal({ ...scanModal, sensorType: type })}
-                          className={`flex-1 py-2 text-sm font-bold rounded-xl border-2 transition-colors ${
-                            scanModal.sensorType === type
-                              ? "border-[#493FD1] bg-[#493FD1] text-white"
-                              : "border-gray-300 text-gray-600 hover:border-gray-400"
-                          }`}>
-                          {type}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                  <>
+                    {scanHasGW ? (
+                      <div className="mb-4 bg-[#f0effc] border border-[#c4c0f4] rounded-xl p-3 text-xs text-[#3a31c4] flex items-start gap-2">
+                        <span className="text-base mt-0.5">✓</span>
+                        <span>Gateway detected — area sensors set to <strong>L410</strong></span>
+                      </div>
+                    ) : scanCount.SENSOR > 0 ? (
+                      <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl p-3">
+                        <p className="text-xs font-semibold text-amber-800 mb-2">No gateway detected. Are these area sensors L410 or E106?</p>
+                        <div className="flex gap-2">
+                          {["L410", "E106"].map((type) => (
+                            <button key={type}
+                              onClick={() => setScanModal({ ...scanModal, sensorType: type })}
+                              className={`flex-1 py-2 text-sm font-bold rounded-xl border-2 transition-colors ${
+                                scanModal.sensorType === type
+                                  ? "border-[#493FD1] bg-[#493FD1] text-white"
+                                  : "border-gray-300 text-gray-600 hover:border-gray-400"
+                              }`}>
+                              {type}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </>
                 )}
 
                 <div className="flex gap-2">
                   <Btn variant="secondary" className="flex-1" onClick={() => setScanModal(null)}>Cancel</Btn>
                   {scanTotal > 0 && (
-                    <Btn className="flex-1" onClick={() => bulkPlaceDevices(scanModal.detected, scanModal.sensorType)}>
+                    <Btn className="flex-1" onClick={() => bulkPlaceDevices(scanModal.detected, scanHasGW ? "L410" : scanModal.sensorType)}>
                       Place {scanTotal} Devices
                     </Btn>
                   )}
