@@ -904,6 +904,7 @@
       const [editMapMode, setEditMapMode]       = useState(false);
       const [draggingDevId, setDraggingDevId]   = useState(null);
       const [localPdfFile, setLocalPdfFile]     = useState(null);
+      const [photoLightbox, setPhotoLightbox]   = useState(null); // { url, photos, index }
       const fpContainerRef                      = useRef(null);
       const justDraggedRef                      = useRef(false);
       const [quickPlacePos, setQuickPlacePos]   = useState(null);
@@ -2069,7 +2070,9 @@
                       <div className="flex flex-wrap gap-2">
                         {df.photos.map((photo, i) => (
                           <div key={i} className="relative w-20 h-20 flex-shrink-0">
-                            <img src={photo} alt={`photo ${i + 1}`} className="w-full h-full object-cover rounded-lg border border-gray-200" />
+                            <img src={photo} alt={`photo ${i + 1}`}
+                              className="w-full h-full object-cover rounded-lg border border-gray-200 cursor-pointer"
+                              onClick={() => setPhotoLightbox({ url: photo, photos: df.photos, index: i })} />
                             {!techLocked && (
                               <button onClick={() => setDf({ ...df, photos: df.photos.filter((_, j) => j !== i) })}
                                 className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center shadow">✕</button>
@@ -2148,7 +2151,9 @@
                       <div className="flex flex-wrap gap-2">
                         {df.photos.map((photo, i) => (
                           <div key={i} className="relative w-20 h-20 flex-shrink-0">
-                            <img src={photo} alt={`photo ${i + 1}`} className="w-full h-full object-cover rounded-lg border border-gray-200" />
+                            <img src={photo} alt={`photo ${i + 1}`}
+                              className="w-full h-full object-cover rounded-lg border border-gray-200 cursor-pointer"
+                              onClick={() => setPhotoLightbox({ url: photo, photos: df.photos, index: i })} />
                             {!techLocked && (
                               <button onClick={() => setDf({ ...df, photos: df.photos.filter((_, j) => j !== i) })}
                                 className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center shadow">✕</button>
@@ -2214,6 +2219,36 @@
                   {!techLocked && <Btn className="flex-1" onClick={saveDevice}>Save Device ✓</Btn>}
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* ══════════════ PHOTO LIGHTBOX ══════════════ */}
+          {photoLightbox && (
+            <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50"
+              onClick={() => setPhotoLightbox(null)}>
+              {/* Prev arrow */}
+              {photoLightbox.photos.length > 1 && photoLightbox.index > 0 && (
+                <button className="absolute left-4 text-white text-4xl font-bold z-10 px-2"
+                  onClick={e => { e.stopPropagation(); setPhotoLightbox(lb => ({ ...lb, index: lb.index - 1, url: lb.photos[lb.index - 1] })); }}>‹</button>
+              )}
+              {/* Image */}
+              <div className="flex flex-col items-center max-w-full max-h-full px-12" onClick={e => e.stopPropagation()}>
+                <img src={photoLightbox.url} alt="photo"
+                  className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl" />
+                <div className="flex items-center gap-4 mt-4">
+                  <span className="text-white/60 text-sm">{photoLightbox.index + 1} / {photoLightbox.photos.length}</span>
+                  <a href={photoLightbox.url} target="_blank" rel="noopener noreferrer" download
+                    className="text-white text-sm underline opacity-70 hover:opacity-100">Download</a>
+                </div>
+              </div>
+              {/* Next arrow */}
+              {photoLightbox.photos.length > 1 && photoLightbox.index < photoLightbox.photos.length - 1 && (
+                <button className="absolute right-4 text-white text-4xl font-bold z-10 px-2"
+                  onClick={e => { e.stopPropagation(); setPhotoLightbox(lb => ({ ...lb, index: lb.index + 1, url: lb.photos[lb.index + 1] })); }}>›</button>
+              )}
+              {/* Close button */}
+              <button className="absolute top-4 right-4 text-white text-2xl font-bold opacity-70 hover:opacity-100"
+                onClick={() => setPhotoLightbox(null)}>✕</button>
             </div>
           )}
 
