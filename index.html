@@ -86,6 +86,26 @@
       return ref.getDownloadURL();
     };
 
+    // Compress + convert image to JPEG before upload (handles HEIC, large files, etc.)
+    const compressImage = (file, maxPx = 1800, quality = 0.82) => new Promise((resolve, reject) => {
+      const img = new Image();
+      const blobUrl = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(blobUrl);
+        let { width, height } = img;
+        if (width > maxPx || height > maxPx) {
+          if (width > height) { height = Math.round(height * maxPx / width); width = maxPx; }
+          else                { width  = Math.round(width  * maxPx / height); height = maxPx; }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Canvas compression failed')), 'image/jpeg', quality);
+      };
+      img.onerror = () => { URL.revokeObjectURL(blobUrl); reject(new Error('Image load failed')); };
+      img.src = blobUrl;
+    });
+
     // Lazy-load jsPDF + autoTable for report generation
     let _jsPdfPromise = null;
     const loadJsPdf = () => {
@@ -340,7 +360,7 @@
 
     const MOUNTING = ["T1", "T2", "T3", "T4"];
     const DEVICE_TYPES = ["L410", "E106", "EN1", "GW"];
-    const DEVICE_COLORS = { L410: "#493FD1", E106: "#0ea5e9", EN1: "#f59e0b", GW: "#10b981" };
+    const DEVICE_COLORS = { L410: "#493FD1", E106: "#0ea5e9", EN1: "#f59e0b", GW: "#0891b2" };
     const deviceColor = (type) => DEVICE_COLORS[type] || "#6b7280";
     const VS_CONTACTS = [
       { name: "Victoria Philbin",      email: "victoria@vergesense.com" },
@@ -926,6 +946,7 @@
       const [draggingDevId, setDraggingDevId]   = useState(null);
       const [localPdfFile, setLocalPdfFile]     = useState(null);
       const [photoLightbox, setPhotoLightbox]   = useState(null); // { url, photos, index }
+      const [copyFromOpen, setCopyFromOpen]     = useState(false);
       const fpContainerRef                      = useRef(null);
       const justDraggedRef                      = useRef(false);
       const [quickPlacePos, setQuickPlacePos]   = useState(null);
@@ -1801,7 +1822,7 @@
                                 if (editMapMode || placing) return;
                                 setPreviewDevId((cur) => (cur === dev.id ? null : dev.id));
                               }}
-                              style={{ backgroundColor: pinColor, borderColor: dev.complete ? "white" : "#fbbf24", outline: previewDevId === dev.id ? `3px solid ${pinColor}` : "none", outlineOffset: 2 }}
+                              style={{ backgroundColor: dev.complete ? "#10b981" : pinColor, borderColor: "white", outline: previewDevId === dev.id ? `3px solid ${dev.complete ? "#10b981" : pinColor}` : "none", outlineOffset: 2 }}
                               className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-lg border-2 transition-transform
                                 ${editMapMode
                                   ? `ring-1 ring-yellow-400 ${isDragging ? "scale-110 cursor-grabbing" : "cursor-grab"}`
@@ -2002,7 +2023,7 @@
                       {activeFloor.devices.filter(dev => !deviceFilter || dev.deviceType === deviceFilter).map((dev) => (
                         <div key={dev.id} className="bg-white rounded-xl border border-gray-200 p-3 flex items-center gap-3">
                           <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0"
-                            style={{ backgroundColor: deviceColor(dev.deviceType), border: dev.complete ? "2.5px solid #10b981" : "2.5px solid #fbbf24" }}>
+                            style={{ backgroundColor: dev.complete ? "#10b981" : deviceColor(dev.deviceType), border: "2.5px solid white", boxShadow: "0 0 0 1.5px " + (dev.complete ? "#10b981" : deviceColor(dev.deviceType)) }}>
                             {dev.number}
                           </div>
                           <div className="flex-1 min-w-0">
@@ -2065,6 +2086,14 @@
                     {DEVICE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                   </Sel>
                 </Field>
+
+                {!techLocked && activeFloor.devices.filter(d => d.id !== activeDevId && (d.ceilingHeight || d.mountingMethod || d.notes)).length > 0 && (
+                  <button
+                    onClick={() => setCopyFromOpen(true)}
+                    className="w-full mb-4 flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed border-[#7069df] text-[#493FD1] text-sm font-semibold hover:bg-[#f0effc] transition-colors">
+                    <span>⎘</span> Copy settings from another device…
+                  </button>
+                )}
 
                 {df.deviceType === 'EN1' ? (
                   <>
@@ -2179,9 +2208,10 @@
                                   showToast("Uploading photos...", "info");
                                   try {
                                     const urls = await Promise.all(files.map(async (file) => {
-                                      const path = `photos/${activeId}/${activeFloorId}/${activeDevId}/${Date.now()}_${file.name}`;
+                                      const compressed = await compressImage(file);
+                                      const path = `photos/${activeId}/${activeFloorId}/${activeDevId}/${Date.now()}.jpg`;
                                       const ref = storage.ref(path);
-                                      await ref.put(file, { contentType: file.type });
+                                      await ref.put(compressed, { contentType: 'image/jpeg' });
                                       return ref.getDownloadURL();
                                     }));
                                     setDf(prev => ({ ...prev, photos: [...prev.photos, ...urls] }));
@@ -2202,9 +2232,10 @@
                                   showToast("Uploading photos...", "info");
                                   try {
                                     const urls = await Promise.all(files.map(async (file) => {
-                                      const path = `photos/${activeId}/${activeFloorId}/${activeDevId}/${Date.now()}_${file.name}`;
+                                      const compressed = await compressImage(file);
+                                      const path = `photos/${activeId}/${activeFloorId}/${activeDevId}/${Date.now()}.jpg`;
                                       const ref = storage.ref(path);
-                                      await ref.put(file, { contentType: file.type });
+                                      await ref.put(compressed, { contentType: 'image/jpeg' });
                                       return ref.getDownloadURL();
                                     }));
                                     setDf(prev => ({ ...prev, photos: [...prev.photos, ...urls] }));
@@ -2260,9 +2291,10 @@
                                   showToast("Uploading photos...", "info");
                                   try {
                                     const urls = await Promise.all(files.map(async (file) => {
-                                      const path = `photos/${activeId}/${activeFloorId}/${activeDevId}/${Date.now()}_${file.name}`;
+                                      const compressed = await compressImage(file);
+                                      const path = `photos/${activeId}/${activeFloorId}/${activeDevId}/${Date.now()}.jpg`;
                                       const ref = storage.ref(path);
-                                      await ref.put(file, { contentType: file.type });
+                                      await ref.put(compressed, { contentType: 'image/jpeg' });
                                       return ref.getDownloadURL();
                                     }));
                                     setDf(prev => ({ ...prev, photos: [...prev.photos, ...urls] }));
@@ -2283,9 +2315,10 @@
                                   showToast("Uploading photos...", "info");
                                   try {
                                     const urls = await Promise.all(files.map(async (file) => {
-                                      const path = `photos/${activeId}/${activeFloorId}/${activeDevId}/${Date.now()}_${file.name}`;
+                                      const compressed = await compressImage(file);
+                                      const path = `photos/${activeId}/${activeFloorId}/${activeDevId}/${Date.now()}.jpg`;
                                       const ref = storage.ref(path);
-                                      await ref.put(file, { contentType: file.type });
+                                      await ref.put(compressed, { contentType: 'image/jpeg' });
                                       return ref.getDownloadURL();
                                     }));
                                     setDf(prev => ({ ...prev, photos: [...prev.photos, ...urls] }));
@@ -2305,6 +2338,67 @@
                 <div className="flex gap-2 mt-2">
                   <Btn variant="secondary" className="flex-1" onClick={() => setScreen("floor")}>{techLocked ? "← Back" : "Cancel"}</Btn>
                   {!techLocked && <Btn className="flex-1" onClick={saveDevice}>Save Device ✓</Btn>}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ══════════════ COPY FROM DEVICE MODAL ══════════════ */}
+          {copyFromOpen && activeFloor && (
+            <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-50 p-4"
+              onClick={() => setCopyFromOpen(false)}>
+              <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden"
+                onClick={e => e.stopPropagation()}>
+                <div className="px-5 pt-5 pb-3 border-b border-gray-100">
+                  <h3 className="font-bold text-gray-900">Copy settings from…</h3>
+                  <p className="text-xs text-gray-400 mt-0.5">Copies ceiling height, mounting method, notes, and photos.</p>
+                </div>
+                <div className="overflow-y-auto max-h-80">
+                  {activeFloor.devices
+                    .filter(d => d.id !== activeDevId && (d.ceilingHeight || d.mountingMethod || d.notes || d.photos?.length))
+                    .map(d => (
+                      <button key={d.id}
+                        onClick={() => {
+                          setDf(prev => ({
+                            ...prev,
+                            ceilingHeight:  d.ceilingHeight  || prev.ceilingHeight,
+                            mountingMethod: d.mountingMethod || prev.mountingMethod,
+                            notes:          d.notes          || prev.notes,
+                            photos:         d.photos?.length ? [...d.photos] : prev.photos,
+                            ...(prev.deviceType === 'EN1' && d.deviceType === 'EN1' ? {
+                              en1_doorFrameHeight:      d.en1_doorFrameHeight      || prev.en1_doorFrameHeight,
+                              en1_doorWidth:            d.en1_doorWidth            || prev.en1_doorWidth,
+                              en1_exitSigns:            d.en1_exitSigns            || prev.en1_exitSigns,
+                              en1_exitSignHeight:       d.en1_exitSignHeight       || prev.en1_exitSignHeight,
+                              en1_sprinklers:           d.en1_sprinklers           || prev.en1_sprinklers,
+                              en1_sprinklerHeight:      d.en1_sprinklerHeight      || prev.en1_sprinklerHeight,
+                              en1_hangingFixtures:      d.en1_hangingFixtures      || prev.en1_hangingFixtures,
+                              en1_hangingFixtureHeight: d.en1_hangingFixtureHeight || prev.en1_hangingFixtureHeight,
+                              en1_doorDirection:        d.en1_doorDirection        || prev.en1_doorDirection,
+                            } : {}),
+                          }));
+                          setCopyFromOpen(false);
+                        }}
+                        className="w-full flex items-center gap-3 px-5 py-3 hover:bg-[#f0effc] transition-colors text-left border-b border-gray-50 last:border-0">
+                        <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0"
+                          style={{ backgroundColor: d.complete ? "#10b981" : deviceColor(d.deviceType) }}>
+                          {d.number}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-gray-800">Device #{d.number}{d.deviceType ? ` · ${d.deviceType}` : ""}</p>
+                          <p className="text-xs text-gray-400 truncate">
+                            {[d.ceilingHeight && `H: ${d.ceilingHeight}`, d.mountingMethod && `Mount: ${d.mountingMethod}`, d.photos?.length && `📷 ${d.photos.length}`, d.notes && `"${d.notes.slice(0,30)}${d.notes.length > 30 ? '…' : ''}"`].filter(Boolean).join(" · ")}
+                          </p>
+                        </div>
+                        <span className="text-[#493FD1] text-xs font-semibold">Copy</span>
+                      </button>
+                    ))}
+                </div>
+                <div className="p-4 border-t border-gray-100">
+                  <button onClick={() => setCopyFromOpen(false)}
+                    className="w-full py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-500 hover:bg-gray-50">
+                    Cancel
+                  </button>
                 </div>
               </div>
             </div>
