@@ -2111,19 +2111,19 @@
                       <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${[df.en1_exitSigns, df.en1_sprinklers, df.en1_hangingFixtures].filter(v => v === "yes").length}, 1fr)` }}>
                         {df.en1_exitSigns === "yes" && (
                           <Field label="Exit Sign Height">
-                            <input className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" placeholder='e.g. 7\'2"'
+                            <input className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" placeholder="e.g. 7ft 2in"
                               value={df.en1_exitSignHeight || ""} onChange={(e) => setDf({ ...df, en1_exitSignHeight: e.target.value })} disabled={techLocked} />
                           </Field>
                         )}
                         {df.en1_sprinklers === "yes" && (
                           <Field label="Sprinkler Height">
-                            <input className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" placeholder='e.g. 9\'0"'
+                            <input className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" placeholder="e.g. 9ft 0in"
                               value={df.en1_sprinklerHeight || ""} onChange={(e) => setDf({ ...df, en1_sprinklerHeight: e.target.value })} disabled={techLocked} />
                           </Field>
                         )}
                         {df.en1_hangingFixtures === "yes" && (
                           <Field label="Fixture Height">
-                            <input className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" placeholder='e.g. 6\'8"'
+                            <input className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" placeholder="e.g. 6ft 8in"
                               value={df.en1_hangingFixtureHeight || ""} onChange={(e) => setDf({ ...df, en1_hangingFixtureHeight: e.target.value })} disabled={techLocked} />
                           </Field>
                         )}
