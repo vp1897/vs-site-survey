@@ -216,9 +216,9 @@
               d.mountingMethod||'—',
               d.en1_doorFrameHeight||'—',
               d.en1_doorWidth||'—',
-              d.en1_exitSigns||'—',
-              d.en1_sprinklers||'—',
-              d.en1_hangingFixtures||'—',
+              d.en1_exitSigns === 'yes' ? (d.en1_exitSignHeight ? `Yes – ${d.en1_exitSignHeight}` : 'Yes') : (d.en1_exitSigns||'—'),
+              d.en1_sprinklers === 'yes' ? (d.en1_sprinklerHeight ? `Yes – ${d.en1_sprinklerHeight}` : 'Yes') : (d.en1_sprinklers||'—'),
+              d.en1_hangingFixtures === 'yes' ? (d.en1_hangingFixtureHeight ? `Yes – ${d.en1_hangingFixtureHeight}` : 'Yes') : (d.en1_hangingFixtures||'—'),
               d.en1_doorDirection||'—',
               d.notes||''
             ]),
@@ -340,6 +340,8 @@
 
     const MOUNTING = ["T1", "T2", "T3", "T4"];
     const DEVICE_TYPES = ["L410", "E106", "EN1", "GW"];
+    const DEVICE_COLORS = { L410: "#493FD1", E106: "#0ea5e9", EN1: "#f59e0b", GW: "#10b981" };
+    const deviceColor = (type) => DEVICE_COLORS[type] || "#6b7280";
     const VS_CONTACTS = [
       { name: "Victoria Philbin",      email: "victoria@vergesense.com" },
       { name: "Marcus Byrd",           email: "marcus.byrd@vergesense.com" },
@@ -732,7 +734,7 @@
     };
 
     // ─── FloorPlanCanvas ───────────────────────────────────────────────────────────
-    const FloorPlanCanvas = ({ floorPlan, pdfFile, placing, suppressBanner, onClickOverlay, onPdfRendered, onPdfDisplayUrl, containerRef: extRef, children }) => {
+    const FloorPlanCanvas = ({ floorPlan, pdfFile, placing, suppressBanner, onClickOverlay, onPdfRendered, onPdfDisplayUrl, containerRef: extRef, rotation = 0, onRotate, children }) => {
       const innerRef  = useRef(null);
       const wrapRef   = useRef(null);
       const zoomRef   = useRef(1);
@@ -742,7 +744,7 @@
       // Keep zoomRef in sync so event listeners always see current value
       useEffect(() => { zoomRef.current = zoom; }, [zoom]);
 
-      const clampZoom = (z) => Math.round(Math.min(4, Math.max(1, z)) * 10) / 10;
+      const clampZoom = (z) => Math.round(Math.min(8, Math.max(1, z)) * 10) / 10;
 
       // Attach touch + wheel listeners with passive:false so we can preventDefault
       useEffect(() => {
@@ -797,13 +799,19 @@
         <div style={{ position: "relative", borderRadius: "0.75rem" }}
           className={`select-none border-2 transition-colors ${placing ? "border-[#5a50d8]" : "border-gray-200"}`}>
           <div ref={wrapRef} style={{
-              overflow: zoom > 1 ? "auto" : "hidden",
-              height:   zoom > 1 ? 320 : undefined,
+              overflow: zoom > 1 || rotation !== 0 ? "auto" : "hidden",
+              height:   zoom > 1 || rotation !== 0 ? 340 : undefined,
               borderRadius: "0.75rem",
             }}>
             <div ref={attachInner} onClick={handleClick}
-              style={{ width: `${zoom * 100}%`, minHeight: 260, position: "relative" }}
-              className={placing ? "cursor-crosshair" : ""}>
+              style={{
+                width: `${zoom * 100}%`, minHeight: 260, position: "relative",
+                transform: rotation ? `rotate(${rotation}deg)` : undefined,
+                transformOrigin: "center center",
+                transition: "transform 0.25s ease",
+                ...(rotation === 90 || rotation === 270 ? { margin: "60px 0" } : {}),
+              }}
+              className={placing && rotation === 0 ? "cursor-crosshair" : ""}>
               {floorPlan?.isDemo ? (
                 <DemoFloorPlanSVG />
               ) : floorPlan?.isPdf ? (
@@ -822,7 +830,20 @@
             </div>
           </div>
           <div style={{ position: "absolute", bottom: 8, right: 8, zIndex: 30 }}
-            className="flex items-center gap-0.5 bg-black/55 rounded-lg px-2 py-1 backdrop-blur-sm">
+            className="flex items-center gap-1 bg-black/55 rounded-lg px-2 py-1 backdrop-blur-sm">
+            {onRotate && (
+              <>
+                <button onClick={(e) => { e.stopPropagation(); onRotate(-90); }}
+                  className="text-white text-xs font-bold px-1.5 py-0.5 rounded" title="Rotate left">↺</button>
+                <button onClick={(e) => { e.stopPropagation(); onRotate(90); }}
+                  className="text-white text-xs font-bold px-1.5 py-0.5 rounded" title="Rotate right">↻</button>
+                {rotation !== 0 && (
+                  <button onClick={(e) => { e.stopPropagation(); onRotate(-rotation); }}
+                    className="text-white text-xs px-1.5 py-0.5 rounded opacity-70" title="Reset rotation">⊙</button>
+                )}
+                <span className="text-white/30 text-xs">|</span>
+              </>
+            )}
             <button
               onClick={(e) => { e.stopPropagation(); setZoom((z) => clampZoom(z - 0.5)); }}
               className="text-white text-xs font-bold px-1.5 py-0.5 rounded">−</button>
@@ -912,13 +933,15 @@
       const [authReady, setAuthReady]           = useState(false);
       const [showMyProjects, setShowMyProjects] = useState(true);
       const [searchQuery, setSearchQuery]         = useState("");
+      const [mapRotation, setMapRotation]         = useState(0);
+      const [deviceFilter, setDeviceFilter]       = useState(null); // null = all
       const [showTechEntry, setShowTechEntry]   = useState(false);
       const [techCodeInput, setTechCodeInput]   = useState("");
       const [techNameInput, setTechNameInput]   = useState("");
       const [techMode, setTechMode]             = useState(false);
       const [techName, setTechName]             = useState("");
       const [np, setNp]                         = useState({ name: "", siteName: "", address: "", vsName: "", vsEmail: "", vsPreset: "" });
-      const emptyDf                             = { ceilingHeight: "", mountingMethod: "", deviceType: "", notes: "", photos: [], en1_doorFrameHeight: "", en1_doorWidth: "", en1_exitSigns: "", en1_sprinklers: "", en1_hangingFixtures: "", en1_doorDirection: "" };
+      const emptyDf                             = { ceilingHeight: "", mountingMethod: "", deviceType: "", notes: "", photos: [], en1_doorFrameHeight: "", en1_doorWidth: "", en1_exitSigns: "", en1_exitSignHeight: "", en1_sprinklers: "", en1_sprinklerHeight: "", en1_hangingFixtures: "", en1_hangingFixtureHeight: "", en1_doorDirection: "" };
       const [df, setDf]                         = useState(emptyDf);
 
       // Firebase auth state listener
@@ -929,6 +952,12 @@
         });
         return unsub;
       }, []);
+
+      // Pre-load jsPDF as soon as auth is ready so it's cached before submission
+      useEffect(() => {
+        if (!authReady) return;
+        loadJsPdf().catch(() => {}); // best-effort; errors handled at submit time
+      }, [authReady]);
 
       // Load projects from Firestore — only when auth is ready
       useEffect(() => {
@@ -1144,8 +1173,11 @@
                 en1_doorFrameHeight: dev.en1_doorFrameHeight || "",
                 en1_doorWidth: dev.en1_doorWidth || "",
                 en1_exitSigns: dev.en1_exitSigns || "",
+                en1_exitSignHeight: dev.en1_exitSignHeight || "",
                 en1_sprinklers: dev.en1_sprinklers || "",
+                en1_sprinklerHeight: dev.en1_sprinklerHeight || "",
                 en1_hangingFixtures: dev.en1_hangingFixtures || "",
+                en1_hangingFixtureHeight: dev.en1_hangingFixtureHeight || "",
                 en1_doorDirection: dev.en1_doorDirection || "",
               } : {}),
             })),
@@ -1175,7 +1207,9 @@
             reportPdfUrl = await generateAndUploadReport(project, activeId);
             payload.reportPdfUrl = reportPdfUrl;
           } catch (pdfErr) {
-            console.warn("PDF generation failed (continuing submission):", pdfErr);
+            console.warn("PDF generation failed:", pdfErr);
+            showToast("Summary didn't go through — check your network connection and try again.", "error");
+            return;
           }
 
           if (N8N_WEBHOOK_URL && !N8N_WEBHOOK_URL.startsWith('REPLACE')) {
@@ -1538,7 +1572,7 @@
                           )}
                         </div>
                         <button className="w-full text-left block"
-                          onClick={() => { const fid = floor.id; setActiveFloorId(fid); setPdfCanvas(null); setPdfDisplayUrl(null); setLocalPdfFile(null); setPlacing(false); setPreviewDevId(null); setScreen("floor"); if (floor.floorPlan && floor.floorPlan.isPdf && !floor.floorPlan.url) { idbGetPdf(fid).then(file => { if (file) setLocalPdfFile(file); }).catch(() => {}); } }}>
+                          onClick={() => { const fid = floor.id; setActiveFloorId(fid); setPdfCanvas(null); setPdfDisplayUrl(null); setLocalPdfFile(null); setPlacing(false); setPreviewDevId(null); setMapRotation(0); setDeviceFilter(null); setScreen("floor"); if (floor.floorPlan && floor.floorPlan.isPdf && !floor.floorPlan.url) { idbGetPdf(fid).then(file => { if (file) setLocalPdfFile(file); }).catch(() => {}); } }}>
                           {floor.floorPlan ? (
                             <div className="relative overflow-hidden bg-gray-50" style={{ maxHeight: 140 }}>
                               {floor.floorPlan.isDemo ? (
@@ -1723,9 +1757,12 @@
                         idbSaveThumb(activeFloorId, url).catch(() => {});
                       }}
                       containerRef={fpContainerRef}
+                      rotation={mapRotation}
+                      onRotate={(deg) => setMapRotation(r => ((r + deg) % 360 + 360) % 360)}
                     >
-                      {activeFloor.devices.map((dev) => {
+                      {activeFloor.devices.filter(dev => !deviceFilter || dev.deviceType === deviceFilter).map((dev) => {
                         const isDragging = draggingDevId === dev.id;
+                        const pinColor = deviceColor(dev.deviceType);
                         return (
                           <div key={dev.id}
                             style={{
@@ -1764,13 +1801,11 @@
                                 if (editMapMode || placing) return;
                                 setPreviewDevId((cur) => (cur === dev.id ? null : dev.id));
                               }}
+                              style={{ backgroundColor: pinColor, borderColor: dev.complete ? "white" : "#fbbf24", outline: previewDevId === dev.id ? `3px solid ${pinColor}` : "none", outlineOffset: 2 }}
                               className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-lg border-2 transition-transform
                                 ${editMapMode
-                                  ? `border-yellow-300 ring-1 ring-yellow-400 ${isDragging ? "scale-110 cursor-grabbing" : "cursor-grab"}`
-                                  : previewDevId === dev.id
-                                    ? "border-[#a9a4ef] scale-110 ring-2 ring-[#7069df] ring-offset-1"
-                                    : "border-white hover:scale-110"}
-                                ${dev.complete ? "bg-emerald-500" : "bg-blue-600"}`}>
+                                  ? `ring-1 ring-yellow-400 ${isDragging ? "scale-110 cursor-grabbing" : "cursor-grab"}`
+                                  : "hover:scale-110"}`}>
                               {dev.number}
                             </button>
                             {editMapMode && (
@@ -1798,6 +1833,36 @@
                         </div>
                       )}
                     </FloorPlanCanvas>
+
+                    {/* Legend + filter */}
+                    {activeFloor.devices.length > 0 && (() => {
+                      const presentTypes = [...new Set(activeFloor.devices.map(d => d.deviceType).filter(Boolean))];
+                      return (
+                        <div className="flex flex-wrap items-center gap-2 mt-2">
+                          <button
+                            onClick={() => setDeviceFilter(null)}
+                            className={`text-xs px-2.5 py-1 rounded-full border transition-colors font-medium ${!deviceFilter ? "text-white border-gray-600 bg-gray-700" : "text-gray-500 border-gray-200 bg-white hover:border-gray-400"}`}>
+                            All
+                          </button>
+                          {presentTypes.map(type => (
+                            <button key={type}
+                              onClick={() => setDeviceFilter(f => f === type ? null : type)}
+                              className="text-xs px-2.5 py-1 rounded-full border font-medium transition-all flex items-center gap-1.5"
+                              style={{
+                                backgroundColor: deviceFilter === type ? deviceColor(type) : "white",
+                                borderColor: deviceColor(type),
+                                color: deviceFilter === type ? "white" : deviceColor(type),
+                              }}>
+                              <span style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: deviceColor(type), display: "inline-block", flexShrink: 0 }} />
+                              {type}
+                            </button>
+                          ))}
+                          {mapRotation !== 0 && (
+                            <span className="text-xs text-amber-600 ml-auto font-medium">↻ {mapRotation}° rotated</span>
+                          )}
+                        </div>
+                      );
+                    })()}
 
                     {quickPlacePos && (
                       <div className="fixed inset-0 z-50 flex items-end justify-center"
@@ -1853,7 +1918,7 @@
                               <Btn variant="secondary" size="sm" onClick={() => setPreviewDevId(null)}>Close</Btn>
                               <Btn size="sm" variant={techLocked ? "secondary" : "primary"} onClick={() => {
                                 setActiveDevId(pDev.id);
-                                setDf({ ceilingHeight: pDev.ceilingHeight, mountingMethod: pDev.mountingMethod, deviceType: pDev.deviceType, notes: pDev.notes, photos: pDev.photos, en1_doorFrameHeight: pDev.en1_doorFrameHeight || "", en1_doorWidth: pDev.en1_doorWidth || "", en1_exitSigns: pDev.en1_exitSigns || "", en1_sprinklers: pDev.en1_sprinklers || "", en1_hangingFixtures: pDev.en1_hangingFixtures || "", en1_doorDirection: pDev.en1_doorDirection || "" });
+                                setDf({ ceilingHeight: pDev.ceilingHeight, mountingMethod: pDev.mountingMethod, deviceType: pDev.deviceType, notes: pDev.notes, photos: pDev.photos, en1_doorFrameHeight: pDev.en1_doorFrameHeight || "", en1_doorWidth: pDev.en1_doorWidth || "", en1_exitSigns: pDev.en1_exitSigns || "", en1_exitSignHeight: pDev.en1_exitSignHeight || "", en1_sprinklers: pDev.en1_sprinklers || "", en1_sprinklerHeight: pDev.en1_sprinklerHeight || "", en1_hangingFixtures: pDev.en1_hangingFixtures || "", en1_hangingFixtureHeight: pDev.en1_hangingFixtureHeight || "", en1_doorDirection: pDev.en1_doorDirection || "" });
                                 setPreviewDevId(null);
                                 setScreen("device");
                               }}>{techLocked ? "View →" : "Edit →"}</Btn>
@@ -1934,9 +1999,10 @@
                   <div className="mt-5">
                     <h3 className="text-sm font-semibold text-gray-700 mb-2">Devices on {activeFloor.name}</h3>
                     <div className="space-y-2">
-                      {activeFloor.devices.map((dev) => (
+                      {activeFloor.devices.filter(dev => !deviceFilter || dev.deviceType === deviceFilter).map((dev) => (
                         <div key={dev.id} className="bg-white rounded-xl border border-gray-200 p-3 flex items-center gap-3">
-                          <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0 ${dev.complete ? "bg-emerald-500" : "bg-blue-600"}`}>
+                          <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0"
+                            style={{ backgroundColor: deviceColor(dev.deviceType), border: dev.complete ? "2.5px solid #10b981" : "2.5px solid #fbbf24" }}>
                             {dev.number}
                           </div>
                           <div className="flex-1 min-w-0">
@@ -1950,7 +2016,7 @@
                           <div className="flex gap-1 flex-shrink-0">
                             <button onClick={() => {
                               setActiveDevId(dev.id);
-                              setDf({ ceilingHeight: dev.ceilingHeight, mountingMethod: dev.mountingMethod, deviceType: dev.deviceType, notes: dev.notes, photos: dev.photos, en1_doorFrameHeight: dev.en1_doorFrameHeight || "", en1_doorWidth: dev.en1_doorWidth || "", en1_exitSigns: dev.en1_exitSigns || "", en1_sprinklers: dev.en1_sprinklers || "", en1_hangingFixtures: dev.en1_hangingFixtures || "", en1_doorDirection: dev.en1_doorDirection || "" });
+                              setDf({ ceilingHeight: dev.ceilingHeight, mountingMethod: dev.mountingMethod, deviceType: dev.deviceType, notes: dev.notes, photos: dev.photos, en1_doorFrameHeight: dev.en1_doorFrameHeight || "", en1_doorWidth: dev.en1_doorWidth || "", en1_exitSigns: dev.en1_exitSigns || "", en1_exitSignHeight: dev.en1_exitSignHeight || "", en1_sprinklers: dev.en1_sprinklers || "", en1_sprinklerHeight: dev.en1_sprinklerHeight || "", en1_hangingFixtures: dev.en1_hangingFixtures || "", en1_hangingFixtureHeight: dev.en1_hangingFixtureHeight || "", en1_doorDirection: dev.en1_doorDirection || "" });
                               setScreen("device");
                             }} className={`text-xs font-medium px-2.5 py-1.5 rounded-lg ${techLocked ? "text-gray-500 hover:bg-gray-100" : "text-[#493FD1] hover:bg-[#f0effc]"}`}>
                               {techLocked ? "View" : "Edit"}
@@ -2020,27 +2086,49 @@
                     </Field>
                     <div className="grid grid-cols-3 gap-3">
                       <Field label="Exit Signs">
-                        <Sel value={df.en1_exitSigns || ""} onChange={(e) => setDf({ ...df, en1_exitSigns: e.target.value })} disabled={techLocked}>
+                        <Sel value={df.en1_exitSigns || ""} onChange={(e) => setDf({ ...df, en1_exitSigns: e.target.value, en1_exitSignHeight: "" })} disabled={techLocked}>
                           <option value="">—</option>
                           <option value="yes">Yes</option>
                           <option value="no">No</option>
                         </Sel>
                       </Field>
                       <Field label="Sprinklers">
-                        <Sel value={df.en1_sprinklers || ""} onChange={(e) => setDf({ ...df, en1_sprinklers: e.target.value })} disabled={techLocked}>
+                        <Sel value={df.en1_sprinklers || ""} onChange={(e) => setDf({ ...df, en1_sprinklers: e.target.value, en1_sprinklerHeight: "" })} disabled={techLocked}>
                           <option value="">—</option>
                           <option value="yes">Yes</option>
                           <option value="no">No</option>
                         </Sel>
                       </Field>
                       <Field label="Hanging Fixtures">
-                        <Sel value={df.en1_hangingFixtures || ""} onChange={(e) => setDf({ ...df, en1_hangingFixtures: e.target.value })} disabled={techLocked}>
+                        <Sel value={df.en1_hangingFixtures || ""} onChange={(e) => setDf({ ...df, en1_hangingFixtures: e.target.value, en1_hangingFixtureHeight: "" })} disabled={techLocked}>
                           <option value="">—</option>
                           <option value="yes">Yes</option>
                           <option value="no">No</option>
                         </Sel>
                       </Field>
                     </div>
+                    {(df.en1_exitSigns === "yes" || df.en1_sprinklers === "yes" || df.en1_hangingFixtures === "yes") && (
+                      <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${[df.en1_exitSigns, df.en1_sprinklers, df.en1_hangingFixtures].filter(v => v === "yes").length}, 1fr)` }}>
+                        {df.en1_exitSigns === "yes" && (
+                          <Field label="Exit Sign Height">
+                            <input className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" placeholder='e.g. 7\'2"'
+                              value={df.en1_exitSignHeight || ""} onChange={(e) => setDf({ ...df, en1_exitSignHeight: e.target.value })} disabled={techLocked} />
+                          </Field>
+                        )}
+                        {df.en1_sprinklers === "yes" && (
+                          <Field label="Sprinkler Height">
+                            <input className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" placeholder='e.g. 9\'0"'
+                              value={df.en1_sprinklerHeight || ""} onChange={(e) => setDf({ ...df, en1_sprinklerHeight: e.target.value })} disabled={techLocked} />
+                          </Field>
+                        )}
+                        {df.en1_hangingFixtures === "yes" && (
+                          <Field label="Fixture Height">
+                            <input className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" placeholder='e.g. 6\'8"'
+                              value={df.en1_hangingFixtureHeight || ""} onChange={(e) => setDf({ ...df, en1_hangingFixtureHeight: e.target.value })} disabled={techLocked} />
+                          </Field>
+                        )}
+                      </div>
+                    )}
                     <Field label="Door Opens">
                       <Sel value={df.en1_doorDirection || ""} onChange={(e) => setDf({ ...df, en1_doorDirection: e.target.value })} disabled={techLocked}>
                         <option value="">Select direction…</option>
