@@ -268,14 +268,19 @@
       doc.text('SUBMISSION DETAILS', M, y); y += 5;
       doc.setFillColor(...LIGHT); doc.rect(M, y, W-2*M, 22, 'F');
       doc.setDrawColor(...BORDER); doc.rect(M, y, W-2*M, 22, 'S');
+      const vsContactStr = project.vsContact
+        ? (typeof project.vsContact === 'object'
+            ? (project.vsContact.name || project.vsContact.email || '—')
+            : String(project.vsContact))
+        : '—';
       [[`${project.summary?.onsiteTechs||0} technician(s)`, 'SUBMITTED BY', M+5],
-       [project.vsContact||'—', 'VS CONTACT', 80],
+       [vsContactStr, 'VS CONTACT', 80],
        [`VS-${Date.now().toString(36).toUpperCase().slice(-6)}`, 'SURVEY ID', 145]
       ].forEach(([val, lbl, x]) => {
         doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(...GRAY);
         doc.text(lbl, x, y+7);
         doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(...DARK);
-        doc.text(val, x, y+14);
+        doc.text(String(val), x, y+14);
       });
 
       // Page footers
@@ -1221,18 +1226,24 @@
         try {
           showToast("Submitting survey...", "info");
 
-          // Generate the survey PDF report and upload to Firebase Storage
-          let reportPdfUrl = null;
-          try {
-            showToast("Generating PDF report...", "info");
-            reportPdfUrl = await generateAndUploadReport(project, activeId);
-            payload.reportPdfUrl = reportPdfUrl;
-          } catch (pdfErr) {
-            console.warn("PDF generation failed:", pdfErr);
-            showToast("Summary didn't go through — check your network connection and try again.", "error");
-            return;
-          }
+          // Step 1: Mark as submitted in Firestore immediately so data is never lost
+          const submittedAt = new Date().toISOString();
+          await db.collection('projects').doc(activeId).update({
+            status: 'submitted',
+            submittedAt,
+            reportPdfUrl: null,
+          });
 
+          // Step 2: Generate PDF — required; throw so user can retry if it fails
+          showToast("Generating PDF report...", "info");
+          let reportPdfUrl = null;
+          reportPdfUrl = await generateAndUploadReport(project, activeId);
+          payload.reportPdfUrl = reportPdfUrl;
+          // Update Firestore with PDF URL now that it's ready
+          await db.collection('projects').doc(activeId).update({ reportPdfUrl });
+
+          // Step 3: Fire n8n webhook (always includes PDF URL)
+          payload.submittedAt = submittedAt;
           if (N8N_WEBHOOK_URL && !N8N_WEBHOOK_URL.startsWith('REPLACE')) {
             await fetch(N8N_WEBHOOK_URL, {
               method: 'POST',
@@ -1240,12 +1251,6 @@
               body: JSON.stringify(payload),
             });
           }
-
-          await db.collection('projects').doc(activeId).update({
-            status: 'submitted',
-            submittedAt: new Date().toISOString(),
-            reportPdfUrl: reportPdfUrl || null,
-          });
 
           setConfirmReady(false);
           showToast("✅ Survey submitted!");
