@@ -1688,6 +1688,19 @@
                     <div className="mt-4 bg-green-50 border border-green-200 rounded-xl p-4 text-sm text-green-700 text-center">
                       <p className="font-semibold">✅ Survey Submitted</p>
                       <p className="text-xs mt-1">Thank you! Your survey has been received.</p>
+                      {!techMode && project.reportPdfUrl && (
+                        <a
+                          href={project.reportPdfUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 mt-3 px-4 py-2 bg-white border border-green-300 rounded-lg text-green-700 font-medium text-xs hover:bg-green-100 transition-colors"
+                        >
+                          📄 View PDF Report
+                        </a>
+                      )}
+                      {!techMode && !project.reportPdfUrl && project.status === "submitted" && (
+                        <p className="text-xs mt-2 text-green-500 italic">PDF generating…</p>
+                      )}
                     </div>
                   )}
                   {project.status === "reviewed" && (
