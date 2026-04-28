@@ -230,10 +230,11 @@
           doc.text('EN1 ENTRY SENSORS', M+2, y+3); y += 5;
           doc.autoTable({
             startY: y, margin: {left:M, right:M},
-            head: [['#','Mount','Frame H','Door W','Exit Signs','Sprinklers','Hanging Fix.','Door Dir.','Notes']],
+            head: [['#','Mount','Ceiling H','Frame H','Door W','Exit Signs','Sprinklers','Hanging Fix.','Door Dir.','Notes']],
             body: en1Devs.map(d=>[
               d.number||'',
               d.mountingMethod||'—',
+              d.ceilingHeight||'—',
               d.en1_doorFrameHeight||'—',
               d.en1_doorWidth||'—',
               d.en1_exitSigns === 'yes' ? (d.en1_exitSignHeight ? `Yes – ${d.en1_exitSignHeight}` : 'Yes') : (d.en1_exitSigns||'—'),
@@ -246,14 +247,15 @@
             bodyStyles: {fontSize:7.5, textColor:DARK},
             columnStyles: {
               0:{cellWidth:7},
-              1:{cellWidth:16},
-              2:{cellWidth:18},
+              1:{cellWidth:15},
+              2:{cellWidth:15},
               3:{cellWidth:15},
-              4:{cellWidth:18},
+              4:{cellWidth:13},
               5:{cellWidth:18},
-              6:{cellWidth:20},
-              7:{cellWidth:16},
-              8:{cellWidth:'auto'}
+              6:{cellWidth:18},
+              7:{cellWidth:18},
+              8:{cellWidth:14},
+              9:{cellWidth:'auto'}
             },
             alternateRowStyles: {fillColor:LIGHT},
           });
