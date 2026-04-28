@@ -1234,13 +1234,18 @@
             reportPdfUrl: null,
           });
 
-          // Step 2: Generate PDF — required; throw so user can retry if it fails
+          // Step 2: Generate PDF — required; revert status if it fails so tech can retry
           showToast("Generating PDF report...", "info");
           let reportPdfUrl = null;
-          reportPdfUrl = await generateAndUploadReport(project, activeId);
-          payload.reportPdfUrl = reportPdfUrl;
-          // Update Firestore with PDF URL now that it's ready
-          await db.collection('projects').doc(activeId).update({ reportPdfUrl });
+          try {
+            reportPdfUrl = await generateAndUploadReport(project, activeId);
+            payload.reportPdfUrl = reportPdfUrl;
+            await db.collection('projects').doc(activeId).update({ reportPdfUrl });
+          } catch (pdfErr) {
+            console.error("PDF generation failed — reverting status so tech can retry:", pdfErr);
+            await db.collection('projects').doc(activeId).update({ status: 'complete', reportPdfUrl: null });
+            throw new Error("PDF generation failed — please tap Submit again");
+          }
 
           // Step 3: Fire n8n webhook (always includes PDF URL)
           payload.submittedAt = submittedAt;
@@ -1256,7 +1261,7 @@
           showToast("✅ Survey submitted!");
         } catch (err) {
           console.error(err);
-          showToast("Submission failed — try again", "error");
+          showToast(err.message || "Submission failed — try again", "error");
         }
       };
 
@@ -1699,7 +1704,21 @@
                         </a>
                       )}
                       {!techMode && !project.reportPdfUrl && project.status === "submitted" && (
-                        <p className="text-xs mt-2 text-green-500 italic">PDF generating…</p>
+                        <button
+                          onClick={async () => {
+                            try {
+                              showToast("Generating PDF...", "info");
+                              const url = await generateAndUploadReport(project, activeId);
+                              await db.collection('projects').doc(activeId).update({ reportPdfUrl: url });
+                              showToast("✅ PDF ready!");
+                            } catch (e) {
+                              showToast("PDF generation failed — try again", "error");
+                            }
+                          }}
+                          className="inline-flex items-center gap-1.5 mt-3 px-4 py-2 bg-white border border-green-300 rounded-lg text-green-700 font-medium text-xs hover:bg-green-100 transition-colors"
+                        >
+                          🔄 Generate PDF
+                        </button>
                       )}
                     </div>
                   )}
