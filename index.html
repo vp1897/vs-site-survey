@@ -167,7 +167,7 @@
         ['PROJECT NAME', project.name||'—', 'CLIENT / ACCOUNT', project.client||'—'],
         ['ADDRESS', project.address||'—', 'SUBMITTED DATE', dateStr],
         ['ONSITE TECHNICIAN(S)', String(project.summary?.onsiteTechs||0), 'VIRTUAL PMs (IF APPLICABLE)', String(project.summary?.virtualPMs||0)],
-        ['INSTALLATION DURATION', project.summary?.installationDuration||'—', 'TOTAL DEVICES', String(allDev.length)],
+        ['INSTALLATION DURATION', fmtMeas(project.summary?.durationValue || project.summary?.duration, project.summary?.durationUnit), 'TOTAL DEVICES', String(allDev.length)],
       ];
       det.forEach(([l1,v1,l2,v2]) => {
         doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(...GRAY);
@@ -1134,7 +1134,7 @@
           vsContact: { name: np.vsName, email: np.vsEmail },
           status: "in_progress",
           floors: [{ id: uid(), name: "Floor 1", floorPlan: null, devices: [] }],
-          summary: { onsiteTechs: "", virtualPMs: "", duration: "", comments: "" },
+          summary: { onsiteTechs: "", virtualPMs: "", durationValue: "", durationUnit: "hours", comments: "" },
           createdAt: new Date().toISOString(),
         };
         db.collection('projects').doc(id).set(proj).then(() => {
@@ -1751,9 +1751,16 @@
                           onChange={(e) => setProject(activeId, { summary: { ...project.summary, virtualPMs: e.target.value } })} />
                       </Field>
                     </div>
-                    <Field label="Installation Duration" hint="e.g. 4 hours, 2 days">
-                      <Input placeholder="Duration…" value={project.summary.duration} disabled={techLocked}
-                        onChange={(e) => setProject(activeId, { summary: { ...project.summary, duration: e.target.value } })} />
+                    <Field label="Installation Duration">
+                      <MeasInput
+                        value={project.summary.durationValue || project.summary.duration || ""}
+                        unit={project.summary.durationUnit || "hours"}
+                        placeholder="e.g. 4, 2.5"
+                        units={['hours','days','weeks']}
+                        onValueChange={v => setProject(activeId, { summary: { ...project.summary, durationValue: v } })}
+                        onUnitChange={u => setProject(activeId, { summary: { ...project.summary, durationUnit: u } })}
+                        disabled={techLocked}
+                      />
                     </Field>
                     <Field label="Additional Comments">
                       <TA placeholder="Notes for the VergeSense team…" value={project.summary.comments} disabled={techLocked}
