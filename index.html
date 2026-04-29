@@ -215,7 +215,7 @@
           doc.autoTable({
             startY: y, margin: {left:M, right:M},
             head: [['#','Type','Mount','Height','Notes']],
-            body: stdDevs.map(d=>[d.number||'',d.deviceType||'—',d.mountingMethod||'—',d.ceilingHeight||'—',d.notes||'']),
+            body: stdDevs.map(d=>[d.number||'',d.deviceType||'—',d.mountingMethod||'—',fmtMeas(d.ceilingHeight,d.ceilingHeightUnit),d.notes||'']),
             headStyles: {fillColor:[243,244,246], textColor:GRAY, fontStyle:'bold', fontSize:7.5},
             bodyStyles: {fontSize:8, textColor:DARK},
             columnStyles: {0:{cellWidth:8},1:{cellWidth:16,fontStyle:'bold',textColor:PURPLE},2:{cellWidth:30},3:{cellWidth:18},4:{cellWidth:'auto'}},
@@ -228,36 +228,57 @@
           if (y > 240) { doc.addPage(); y = 20; }
           doc.setFont('helvetica','bold'); doc.setFontSize(7.5); doc.setTextColor(...GRAY);
           doc.text('EN1 ENTRY SENSORS', M+2, y+3); y += 5;
+          // Pre-fetch exterior photos for thumbnail embedding
+          const en1PhotoDataUrls = {};
+          for (const d of en1Devs) {
+            const extUrl = d.exteriorPhotos && d.exteriorPhotos.length > 0 ? d.exteriorPhotos[0] : null;
+            if (extUrl) {
+              try { en1PhotoDataUrls[d.id] = await fetchImageAsDataUrl(extUrl); } catch(e) { /* skip */ }
+            }
+          }
           doc.autoTable({
             startY: y, margin: {left:M, right:M},
-            head: [['#','Mount','Ceiling H','Frame H','Door W','Exit Signs','Sprinklers','Hanging Fix.','Door Dir.','Notes']],
+            head: [['#','Ext.','Mount','Ceil.','Frame','Width','Exit Signs','Sprinklers','Hang. Fix.','Dir.','Notes']],
             body: en1Devs.map(d=>[
               d.number||'',
+              '',  // photo cell — drawn in didDrawCell
               d.mountingMethod||'—',
-              d.ceilingHeight||'—',
-              d.en1_doorFrameHeight||'—',
-              d.en1_doorWidth||'—',
-              d.en1_exitSigns === 'yes' ? (d.en1_exitSignHeight ? `Yes – ${d.en1_exitSignHeight}` : 'Yes') : (d.en1_exitSigns||'—'),
-              d.en1_sprinklers === 'yes' ? (d.en1_sprinklerHeight ? `Yes – ${d.en1_sprinklerHeight}` : 'Yes') : (d.en1_sprinklers||'—'),
-              d.en1_hangingFixtures === 'yes' ? (d.en1_hangingFixtureHeight ? `Yes – ${d.en1_hangingFixtureHeight}` : 'Yes') : (d.en1_hangingFixtures||'—'),
+              fmtMeas(d.ceilingHeight, d.ceilingHeightUnit),
+              fmtMeas(d.en1_doorFrameHeight, d.en1_doorFrameHeightUnit),
+              fmtMeas(d.en1_doorWidth, d.en1_doorWidthUnit),
+              d.en1_exitSigns === 'yes' ? (d.en1_exitSignDist ? `Yes – ${fmtMeas(d.en1_exitSignDist, d.en1_exitSignDistUnit)}` : 'Yes') : (d.en1_exitSigns||'—'),
+              d.en1_sprinklers === 'yes' ? (d.en1_sprinklerDist ? `Yes – ${fmtMeas(d.en1_sprinklerDist, d.en1_sprinklerDistUnit)}` : 'Yes') : (d.en1_sprinklers||'—'),
+              d.en1_hangingFixtures === 'yes' ? (d.en1_hangingFixtureDist ? `Yes – ${fmtMeas(d.en1_hangingFixtureDist, d.en1_hangingFixtureDistUnit)}` : 'Yes') : (d.en1_hangingFixtures||'—'),
               d.en1_doorDirection||'—',
               d.notes||''
             ]),
             headStyles: {fillColor:[243,244,246], textColor:GRAY, fontStyle:'bold', fontSize:6.5},
-            bodyStyles: {fontSize:7.5, textColor:DARK},
+            bodyStyles: {fontSize:7, textColor:DARK, minCellHeight: 16},
             columnStyles: {
               0:{cellWidth:7},
-              1:{cellWidth:15},
-              2:{cellWidth:15},
-              3:{cellWidth:15},
+              1:{cellWidth:17},
+              2:{cellWidth:14},
+              3:{cellWidth:13},
               4:{cellWidth:13},
-              5:{cellWidth:18},
-              6:{cellWidth:18},
-              7:{cellWidth:18},
-              8:{cellWidth:14},
-              9:{cellWidth:'auto'}
+              5:{cellWidth:12},
+              6:{cellWidth:17},
+              7:{cellWidth:17},
+              8:{cellWidth:17},
+              9:{cellWidth:12},
+              10:{cellWidth:'auto'}
             },
             alternateRowStyles: {fillColor:LIGHT},
+            didDrawCell: (data) => {
+              if (data.section === 'body' && data.column.index === 1) {
+                const device = en1Devs[data.row.index];
+                if (device && en1PhotoDataUrls[device.id]) {
+                  const pad = 1.5;
+                  doc.addImage(en1PhotoDataUrls[device.id], 'JPEG',
+                    data.cell.x + pad, data.cell.y + pad,
+                    data.cell.width - pad*2, data.cell.height - pad*2);
+                }
+              }
+            },
           });
           y = doc.lastAutoTable.finalY + 8;
         }
@@ -679,6 +700,42 @@
       const [cls, lbl] = cfg[status] ?? cfg.in_progress;
       return <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${cls}`}>{lbl}</span>;
     };
+    // Measurement input: large freeform text + narrow unit dropdown
+    const MeasInput = ({ value, unit, onValueChange, onUnitChange, placeholder, units = ['ft','m'], disabled }) => (
+      <div style={{display:'flex', gap:'6px'}}>
+        <input
+          style={{flex:1, minWidth:0}}
+          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#5a50d8]"
+          placeholder={placeholder}
+          value={value || ""}
+          onChange={e => onValueChange(e.target.value)}
+          disabled={disabled}
+        />
+        <select
+          style={{width:'70px', flexShrink:0}}
+          className="border border-gray-300 rounded-lg px-2 py-2 text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#5a50d8]"
+          value={unit || units[0]}
+          onChange={e => onUnitChange(e.target.value)}
+          disabled={disabled}
+        >
+          {units.map(u => <option key={u} value={u}>{u}</option>)}
+        </select>
+      </div>
+    );
+    // Format measurement for PDF display
+    const fmtMeas = (val, unit) => (val && String(val).trim()) ? `${String(val).trim()}${unit ? ' ' + unit : ''}` : '—';
+    // Fetch a photo URL as a base64 data URL for PDF embedding
+    const fetchImageAsDataUrl = async (url) => {
+      const resp = await fetch(url);
+      const blob = await resp.blob();
+      return new Promise((res, rej) => {
+        const reader = new FileReader();
+        reader.onloadend = () => res(reader.result);
+        reader.onerror = rej;
+        reader.readAsDataURL(blob);
+      });
+    };
+
     const Field = ({ label, children, hint }) => (
       <div className="mb-4">
         <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
@@ -969,7 +1026,17 @@
       const [techMode, setTechMode]             = useState(false);
       const [techName, setTechName]             = useState("");
       const [np, setNp]                         = useState({ name: "", siteName: "", address: "", vsName: "", vsEmail: "", vsPreset: "" });
-      const emptyDf                             = { ceilingHeight: "", mountingMethod: "", deviceType: "", notes: "", photos: [], en1_doorFrameHeight: "", en1_doorWidth: "", en1_exitSigns: "", en1_exitSignHeight: "", en1_sprinklers: "", en1_sprinklerHeight: "", en1_hangingFixtures: "", en1_hangingFixtureHeight: "", en1_doorDirection: "" };
+      const emptyDf                             = {
+        ceilingHeight: "", ceilingHeightUnit: "ft",
+        mountingMethod: "", deviceType: "", notes: "",
+        photos: [], exteriorPhotos: [],
+        en1_doorFrameHeight: "", en1_doorFrameHeightUnit: "ft",
+        en1_doorWidth: "", en1_doorWidthUnit: "in",
+        en1_exitSigns: "", en1_exitSignDist: "", en1_exitSignDistUnit: "in",
+        en1_sprinklers: "", en1_sprinklerDist: "", en1_sprinklerDistUnit: "in",
+        en1_hangingFixtures: "", en1_hangingFixtureDist: "", en1_hangingFixtureDistUnit: "in",
+        en1_doorDirection: "",
+      };
       const [df, setDf]                         = useState(emptyDf);
 
       // Firebase auth state listener
@@ -1099,7 +1166,7 @@
         if (!activeFloor) return;
         const dev = {
           id: uid(), number: activeFloor.devices.length + 1,
-          x, y, ceilingHeight: "", mountingMethod: "", deviceType: "", notes: "", photos: [], complete: false,
+          x, y, ceilingHeight: "", ceilingHeightUnit: "ft", mountingMethod: "", deviceType: "", notes: "", photos: [], exteriorPhotos: [], complete: false,
         };
         setFloor(activeId, activeFloorId, { devices: [...activeFloor.devices, dev] });
         setActiveDevId(dev.id);
@@ -1114,9 +1181,9 @@
         const newDevs = detected.map((d, i) => ({
           id: uid(), number: startNum + i,
           x: d.x, y: d.y,
-          ceilingHeight: "", mountingMethod: "",
+          ceilingHeight: "", ceilingHeightUnit: "ft", mountingMethod: "",
           deviceType: d.type === "SENSOR" ? sensorType : d.type,
-          notes: "", photos: [], complete: false,
+          notes: "", photos: [], exteriorPhotos: [], complete: false,
         }));
         setFloor(activeId, activeFloorId, { devices: [...activeFloor.devices, ...newDevs] });
         setScanModal(null);
@@ -1166,9 +1233,9 @@
         const dev = {
           id: uid(), number: num,
           x: quickPlacePos.x, y: quickPlacePos.y,
-          ceilingHeight: "", mountingMethod: "",
+          ceilingHeight: "", ceilingHeightUnit: "ft", mountingMethod: "",
           deviceType: deviceType ?? "",
-          notes: "", photos: [], complete: false,
+          notes: "", photos: [], exteriorPhotos: [], complete: false,
         };
         setFloor(activeId, activeFloorId, { devices: [...activeFloor.devices, dev] });
         setQuickPlacePos(null);
@@ -1190,23 +1257,30 @@
           floors: project.floors.map(floor => ({
             floorName: floor.name,
             devices: floor.devices.map(dev => ({
-            number: dev.number,
+              number: dev.number,
               deviceType: dev.deviceType,
               ceilingHeight: dev.ceilingHeight,
+              ceilingHeightUnit: dev.ceilingHeightUnit || "ft",
               mountingMethod: dev.mountingMethod,
               notes: dev.notes,
               complete: dev.complete,
               photos: dev.photos || [],
+              exteriorPhotos: dev.exteriorPhotos || [],
               ...(dev.deviceType === 'EN1' ? {
-                en1_doorFrameHeight: dev.en1_doorFrameHeight || "",
-                en1_doorWidth: dev.en1_doorWidth || "",
-                en1_exitSigns: dev.en1_exitSigns || "",
-                en1_exitSignHeight: dev.en1_exitSignHeight || "",
-                en1_sprinklers: dev.en1_sprinklers || "",
-                en1_sprinklerHeight: dev.en1_sprinklerHeight || "",
-                en1_hangingFixtures: dev.en1_hangingFixtures || "",
-                en1_hangingFixtureHeight: dev.en1_hangingFixtureHeight || "",
-                en1_doorDirection: dev.en1_doorDirection || "",
+                en1_doorFrameHeight:        dev.en1_doorFrameHeight        || "",
+                en1_doorFrameHeightUnit:    dev.en1_doorFrameHeightUnit    || "ft",
+                en1_doorWidth:              dev.en1_doorWidth              || "",
+                en1_doorWidthUnit:          dev.en1_doorWidthUnit          || "in",
+                en1_exitSigns:              dev.en1_exitSigns              || "",
+                en1_exitSignDist:           dev.en1_exitSignDist           || dev.en1_exitSignHeight     || "",
+                en1_exitSignDistUnit:       dev.en1_exitSignDistUnit       || "in",
+                en1_sprinklers:             dev.en1_sprinklers             || "",
+                en1_sprinklerDist:          dev.en1_sprinklerDist          || dev.en1_sprinklerHeight    || "",
+                en1_sprinklerDistUnit:      dev.en1_sprinklerDistUnit      || "in",
+                en1_hangingFixtures:        dev.en1_hangingFixtures        || "",
+                en1_hangingFixtureDist:     dev.en1_hangingFixtureDist     || dev.en1_hangingFixtureHeight || "",
+                en1_hangingFixtureDistUnit: dev.en1_hangingFixtureDistUnit || "in",
+                en1_doorDirection:          dev.en1_doorDirection          || "",
               } : {}),
             })),
             deviceCounts: {
@@ -2136,13 +2210,13 @@
                 {df.deviceType === 'EN1' ? (
                   <>
                     <Field label="Door Frame Height">
-                      <Input placeholder='e.g. 7ft, 80in' value={df.en1_doorFrameHeight || ""} onChange={(e) => setDf({ ...df, en1_doorFrameHeight: e.target.value })} disabled={techLocked} />
+                      <MeasInput value={df.en1_doorFrameHeight} unit={df.en1_doorFrameHeightUnit || "ft"} placeholder="e.g. 7, 6.5" units={['ft','m']} onValueChange={v => setDf({...df, en1_doorFrameHeight: v})} onUnitChange={u => setDf({...df, en1_doorFrameHeightUnit: u})} disabled={techLocked} />
                     </Field>
                     <Field label="Ceiling Height">
-                      <Input placeholder='e.g. 9ft, 10ft 6in' value={df.ceilingHeight} onChange={(e) => setDf({ ...df, ceilingHeight: e.target.value })} disabled={techLocked} />
+                      <MeasInput value={df.ceilingHeight} unit={df.ceilingHeightUnit || "ft"} placeholder="e.g. 9, 10.5" units={['ft','m']} onValueChange={v => setDf({...df, ceilingHeight: v})} onUnitChange={u => setDf({...df, ceilingHeightUnit: u})} disabled={techLocked} />
                     </Field>
                     <Field label="Door / Entry Width">
-                      <Input placeholder='e.g. 36in, 3ft' value={df.en1_doorWidth || ""} onChange={(e) => setDf({ ...df, en1_doorWidth: e.target.value })} disabled={techLocked} />
+                      <MeasInput value={df.en1_doorWidth} unit={df.en1_doorWidthUnit || "in"} placeholder="e.g. 36, 32" units={['in','ft','m']} onValueChange={v => setDf({...df, en1_doorWidth: v})} onUnitChange={u => setDf({...df, en1_doorWidthUnit: u})} disabled={techLocked} />
                     </Field>
                     <Field label="Mounting Tier">
                       <Sel value={df.mountingMethod} onChange={(e) => setDf({ ...df, mountingMethod: e.target.value })} disabled={techLocked}>
@@ -2153,21 +2227,21 @@
                     </Field>
                     <div className="grid grid-cols-3 gap-3">
                       <Field label="Exit Signs">
-                        <Sel value={df.en1_exitSigns || ""} onChange={(e) => setDf({ ...df, en1_exitSigns: e.target.value, en1_exitSignHeight: "" })} disabled={techLocked}>
+                        <Sel value={df.en1_exitSigns || ""} onChange={(e) => setDf({ ...df, en1_exitSigns: e.target.value, en1_exitSignDist: "" })} disabled={techLocked}>
                           <option value="">—</option>
                           <option value="yes">Yes</option>
                           <option value="no">No</option>
                         </Sel>
                       </Field>
                       <Field label="Sprinklers">
-                        <Sel value={df.en1_sprinklers || ""} onChange={(e) => setDf({ ...df, en1_sprinklers: e.target.value, en1_sprinklerHeight: "" })} disabled={techLocked}>
+                        <Sel value={df.en1_sprinklers || ""} onChange={(e) => setDf({ ...df, en1_sprinklers: e.target.value, en1_sprinklerDist: "" })} disabled={techLocked}>
                           <option value="">—</option>
                           <option value="yes">Yes</option>
                           <option value="no">No</option>
                         </Sel>
                       </Field>
                       <Field label="Hanging Fixtures">
-                        <Sel value={df.en1_hangingFixtures || ""} onChange={(e) => setDf({ ...df, en1_hangingFixtures: e.target.value, en1_hangingFixtureHeight: "" })} disabled={techLocked}>
+                        <Sel value={df.en1_hangingFixtures || ""} onChange={(e) => setDf({ ...df, en1_hangingFixtures: e.target.value, en1_hangingFixtureDist: "" })} disabled={techLocked}>
                           <option value="">—</option>
                           <option value="yes">Yes</option>
                           <option value="no">No</option>
@@ -2175,23 +2249,20 @@
                       </Field>
                     </div>
                     {(df.en1_exitSigns === "yes" || df.en1_sprinklers === "yes" || df.en1_hangingFixtures === "yes") && (
-                      <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${[df.en1_exitSigns, df.en1_sprinklers, df.en1_hangingFixtures].filter(v => v === "yes").length}, 1fr)` }}>
+                      <div className="space-y-3">
                         {df.en1_exitSigns === "yes" && (
-                          <Field label="Exit Sign Height">
-                            <input className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" placeholder="e.g. 7ft 2in"
-                              value={df.en1_exitSignHeight || ""} onChange={(e) => setDf({ ...df, en1_exitSignHeight: e.target.value })} disabled={techLocked} />
+                          <Field label="Exit sign — distance from door">
+                            <MeasInput value={df.en1_exitSignDist} unit={df.en1_exitSignDistUnit || "in"} placeholder="e.g. 18, 24" units={['in','ft','m']} onValueChange={v => setDf({...df, en1_exitSignDist: v})} onUnitChange={u => setDf({...df, en1_exitSignDistUnit: u})} disabled={techLocked} />
                           </Field>
                         )}
                         {df.en1_sprinklers === "yes" && (
-                          <Field label="Sprinkler Height">
-                            <input className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" placeholder="e.g. 9ft 0in"
-                              value={df.en1_sprinklerHeight || ""} onChange={(e) => setDf({ ...df, en1_sprinklerHeight: e.target.value })} disabled={techLocked} />
+                          <Field label="Sprinkler — distance from door">
+                            <MeasInput value={df.en1_sprinklerDist} unit={df.en1_sprinklerDistUnit || "in"} placeholder="e.g. 18, 24" units={['in','ft','m']} onValueChange={v => setDf({...df, en1_sprinklerDist: v})} onUnitChange={u => setDf({...df, en1_sprinklerDistUnit: u})} disabled={techLocked} />
                           </Field>
                         )}
                         {df.en1_hangingFixtures === "yes" && (
-                          <Field label="Fixture Height">
-                            <input className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" placeholder="e.g. 6ft 8in"
-                              value={df.en1_hangingFixtureHeight || ""} onChange={(e) => setDf({ ...df, en1_hangingFixtureHeight: e.target.value })} disabled={techLocked} />
+                          <Field label="Hanging fixture — distance from door">
+                            <MeasInput value={df.en1_hangingFixtureDist} unit={df.en1_hangingFixtureDistUnit || "in"} placeholder="e.g. 18, 24" units={['in','ft','m']} onValueChange={v => setDf({...df, en1_hangingFixtureDist: v})} onUnitChange={u => setDf({...df, en1_hangingFixtureDistUnit: u})} disabled={techLocked} />
                           </Field>
                         )}
                       </div>
@@ -2208,19 +2279,82 @@
                     <Field label="Notes">
                       <TA placeholder="Anything specific about this EN1 location…" value={df.notes} onChange={(e) => setDf({ ...df, notes: e.target.value })} disabled={techLocked} />
                     </Field>
-                    <Field label="Photos" hint={techLocked ? undefined : "All 8 angles required — see list above"}>
+                    {/* EN1 — Exterior View photos */}
+                    <Field label="Exterior View" hint="Photo from outside the doorway looking in. First photo used in the PDF report.">
+                      <div className="flex flex-wrap gap-2">
+                        {(df.exteriorPhotos || []).map((photo, i) => (
+                          <div key={i} className="relative w-20 h-20 flex-shrink-0">
+                            <img src={photo} alt={`exterior ${i + 1}`}
+                              className="w-full h-full object-cover rounded-lg border border-gray-200 cursor-pointer"
+                              onClick={() => setPhotoLightbox({ url: photo, photos: df.exteriorPhotos, index: i })} />
+                            {!techLocked && (
+                              <button onClick={() => setDf({ ...df, exteriorPhotos: df.exteriorPhotos.filter((_, j) => j !== i) })}
+                                className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center shadow">✕</button>
+                            )}
+                          </div>
+                        ))}
+                        {!techLocked && (
+                          <>
+                            <label className="w-20 h-20 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-[#7069df] text-gray-400 flex-shrink-0">
+                              <span className="text-xl leading-none">📷</span>
+                              <span className="text-xs mt-0.5">Camera</span>
+                              <input type="file" accept="image/*" capture="environment" className="hidden"
+                                onChange={async (e) => {
+                                  const files = Array.from(e.target.files ?? []);
+                                  if (!files.length) return;
+                                  showToast("Uploading photo...", "info");
+                                  try {
+                                    const urls = await Promise.all(files.map(async (file) => {
+                                      const compressed = await compressImage(file);
+                                      const path = `photos/${activeId}/${activeFloorId}/${activeDevId}/ext_${Date.now()}.jpg`;
+                                      const ref = storage.ref(path);
+                                      await ref.put(compressed, { contentType: 'image/jpeg' });
+                                      return ref.getDownloadURL();
+                                    }));
+                                    setDf(prev => ({ ...prev, exteriorPhotos: [...(prev.exteriorPhotos||[]), ...urls] }));
+                                    showToast(`${urls.length} photo${urls.length > 1 ? 's' : ''} uploaded ✓`);
+                                  } catch (err) { showToast('Upload failed: ' + err.message, 'error'); }
+                                }} />
+                            </label>
+                            <label className="w-20 h-20 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-[#7069df] text-gray-400 flex-shrink-0">
+                              <span className="text-xl leading-none">🖼️</span>
+                              <span className="text-xs mt-0.5">Gallery</span>
+                              <input type="file" accept="image/*" multiple className="hidden"
+                                onChange={async (e) => {
+                                  const files = Array.from(e.target.files ?? []);
+                                  if (!files.length) return;
+                                  showToast("Uploading photo...", "info");
+                                  try {
+                                    const urls = await Promise.all(files.map(async (file) => {
+                                      const compressed = await compressImage(file);
+                                      const path = `photos/${activeId}/${activeFloorId}/${activeDevId}/ext_${Date.now()}.jpg`;
+                                      const ref = storage.ref(path);
+                                      await ref.put(compressed, { contentType: 'image/jpeg' });
+                                      return ref.getDownloadURL();
+                                    }));
+                                    setDf(prev => ({ ...prev, exteriorPhotos: [...(prev.exteriorPhotos||[]), ...urls] }));
+                                    showToast(`${urls.length} photo${urls.length > 1 ? 's' : ''} uploaded ✓`);
+                                  } catch (err) { showToast('Upload failed: ' + err.message, 'error'); }
+                                }} />
+                            </label>
+                          </>
+                        )}
+                      </div>
+                    </Field>
+                    {/* EN1 — Additional photos with required angles */}
+                    <Field label="Additional Photos">
                       <div className="mb-3 bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-800">
-                        <p className="font-semibold mb-1.5">📷 Required photo angles for EN1:</p>
-                        <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
-                          <span>• Close-up view</span>
-                          <span>• Mid-range (front)</span>
-                          <span>• Mid-range (interior)</span>
-                          <span>• Wide angle (doorway)</span>
-                          <span>• Side view</span>
-                          <span>• Wide angle (hallway)</span>
-                          <span>• Interior view</span>
-                          <span>• Exterior view</span>
-                        </div>
+                        <p className="font-semibold mb-1.5">📷 Required photo angles:</p>
+                        <ul className="space-y-0.5 list-none">
+                          <li>• Close-up view</li>
+                          <li>• Mid-range (interior)</li>
+                          <li>• Side view</li>
+                          <li>• Interior view</li>
+                          <li>• Mid-range (front)</li>
+                          <li>• Wide angle (doorway)</li>
+                          <li>• Wide angle (hallway)</li>
+                          <li>• Obstructions (if any)</li>
+                        </ul>
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {df.photos.map((photo, i) => (
@@ -2254,10 +2388,7 @@
                                     }));
                                     setDf(prev => ({ ...prev, photos: [...prev.photos, ...urls] }));
                                     showToast(`${urls.length} photo${urls.length > 1 ? 's' : ''} uploaded ✓`);
-                                  } catch (err) {
-                                    console.error('Photo upload failed:', err);
-                                    showToast('Photo upload failed: ' + err.message, 'error');
-                                  }
+                                  } catch (err) { showToast('Photo upload failed: ' + err.message, 'error'); }
                                 }} />
                             </label>
                             <label className="w-20 h-20 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-[#7069df] text-gray-400 flex-shrink-0">
@@ -2278,10 +2409,7 @@
                                     }));
                                     setDf(prev => ({ ...prev, photos: [...prev.photos, ...urls] }));
                                     showToast(`${urls.length} photo${urls.length > 1 ? 's' : ''} uploaded ✓`);
-                                  } catch (err) {
-                                    console.error('Photo upload failed:', err);
-                                    showToast('Photo upload failed: ' + err.message, 'error');
-                                  }
+                                  } catch (err) { showToast('Photo upload failed: ' + err.message, 'error'); }
                                 }} />
                             </label>
                           </>
@@ -2292,7 +2420,7 @@
                 ) : (
                   <>
                     <Field label="Ceiling Height">
-                      <Input placeholder='e.g. 9ft, 10ft 6in' value={df.ceilingHeight} onChange={(e) => setDf({ ...df, ceilingHeight: e.target.value })} disabled={techLocked} />
+                      <MeasInput value={df.ceilingHeight} unit={df.ceilingHeightUnit || "ft"} placeholder="e.g. 9, 10.5" units={['ft','m']} onValueChange={v => setDf({...df, ceilingHeight: v})} onUnitChange={u => setDf({...df, ceilingHeightUnit: u})} disabled={techLocked} />
                     </Field>
                     <Field label="Mounting Method">
                       <Sel value={df.mountingMethod} onChange={(e) => setDf({ ...df, mountingMethod: e.target.value })} disabled={techLocked}>
@@ -2399,20 +2527,27 @@
                         onClick={() => {
                           setDf(prev => ({
                             ...prev,
-                            ceilingHeight:  d.ceilingHeight  || prev.ceilingHeight,
-                            mountingMethod: d.mountingMethod || prev.mountingMethod,
-                            notes:          d.notes          || prev.notes,
-                            photos:         d.photos?.length ? [...d.photos] : prev.photos,
+                            ceilingHeight:     d.ceilingHeight     || prev.ceilingHeight,
+                            ceilingHeightUnit: d.ceilingHeightUnit || prev.ceilingHeightUnit,
+                            mountingMethod:    d.mountingMethod    || prev.mountingMethod,
+                            notes:             d.notes             || prev.notes,
+                            photos:            d.photos?.length        ? [...d.photos]         : prev.photos,
+                            exteriorPhotos:    d.exteriorPhotos?.length ? [...d.exteriorPhotos] : prev.exteriorPhotos,
                             ...(prev.deviceType === 'EN1' && d.deviceType === 'EN1' ? {
-                              en1_doorFrameHeight:      d.en1_doorFrameHeight      || prev.en1_doorFrameHeight,
-                              en1_doorWidth:            d.en1_doorWidth            || prev.en1_doorWidth,
-                              en1_exitSigns:            d.en1_exitSigns            || prev.en1_exitSigns,
-                              en1_exitSignHeight:       d.en1_exitSignHeight       || prev.en1_exitSignHeight,
-                              en1_sprinklers:           d.en1_sprinklers           || prev.en1_sprinklers,
-                              en1_sprinklerHeight:      d.en1_sprinklerHeight      || prev.en1_sprinklerHeight,
-                              en1_hangingFixtures:      d.en1_hangingFixtures      || prev.en1_hangingFixtures,
-                              en1_hangingFixtureHeight: d.en1_hangingFixtureHeight || prev.en1_hangingFixtureHeight,
-                              en1_doorDirection:        d.en1_doorDirection        || prev.en1_doorDirection,
+                              en1_doorFrameHeight:     d.en1_doorFrameHeight     || prev.en1_doorFrameHeight,
+                              en1_doorFrameHeightUnit: d.en1_doorFrameHeightUnit || prev.en1_doorFrameHeightUnit,
+                              en1_doorWidth:           d.en1_doorWidth           || prev.en1_doorWidth,
+                              en1_doorWidthUnit:       d.en1_doorWidthUnit       || prev.en1_doorWidthUnit,
+                              en1_exitSigns:           d.en1_exitSigns           || prev.en1_exitSigns,
+                              en1_exitSignDist:        d.en1_exitSignDist        || prev.en1_exitSignDist,
+                              en1_exitSignDistUnit:    d.en1_exitSignDistUnit    || prev.en1_exitSignDistUnit,
+                              en1_sprinklers:          d.en1_sprinklers          || prev.en1_sprinklers,
+                              en1_sprinklerDist:       d.en1_sprinklerDist       || prev.en1_sprinklerDist,
+                              en1_sprinklerDistUnit:   d.en1_sprinklerDistUnit   || prev.en1_sprinklerDistUnit,
+                              en1_hangingFixtures:     d.en1_hangingFixtures     || prev.en1_hangingFixtures,
+                              en1_hangingFixtureDist:     d.en1_hangingFixtureDist     || prev.en1_hangingFixtureDist,
+                              en1_hangingFixtureDistUnit: d.en1_hangingFixtureDistUnit || prev.en1_hangingFixtureDistUnit,
+                              en1_doorDirection:       d.en1_doorDirection       || prev.en1_doorDirection,
                             } : {}),
                           }));
                           setCopyFromOpen(false);
